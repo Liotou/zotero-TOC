@@ -1,0 +1,153 @@
+<vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+      xmlns:html="http://www.w3.org/1999/xhtml">
+
+  <!-- ===================== 1 · APPUI D'UN MODÈLE ====================== -->
+  <groupbox>
+    <label><html:h2>1 · Appui d'un modèle</html:h2></label>
+
+    <description style="max-width: 46em; opacity: 0.85;">
+      La détection des titres est d'abord typographique et fonctionne sans
+      modèle. Un modèle n'intervient qu'en renfort, sur les documents mal
+      structurés. Il ne rédige jamais les intitulés : il choisit parmi les
+      lignes réellement présentes dans le PDF.
+    </description>
+
+    <hbox align="center" style="margin-top: 8px;">
+      <label value="Solliciter le modèle :" control="ztoc-aimode"/>
+      <html:select id="ztoc-aimode" style="min-width: 26em;"
+                   preference="extensions.zotero.ztoc.aiMode">
+        <html:option value="never">Jamais — détection typographique seule</html:option>
+        <html:option value="auto">En cas de doute seulement (recommandé)</html:option>
+        <html:option value="always">Toujours</html:option>
+      </html:select>
+    </hbox>
+
+    <hbox align="center" style="margin-top: 6px;">
+      <label value="Fournisseur :" control="ztoc-provider"/>
+      <html:select id="ztoc-provider" style="min-width: 26em;"
+                   preference="extensions.zotero.ztoc.provider">
+        <html:option value="off">Aucun</html:option>
+        <html:option value="ollama">Ollama — modèle local, aucune clé, rien n'est envoyé</html:option>
+        <html:option value="cli">Claude Code en ligne de commande — abonnement local</html:option>
+        <html:option value="mistral">API Mistral (ou compatible OpenAI) — distant</html:option>
+      </html:select>
+    </hbox>
+
+    <!-- Réglages propres à chaque fournisseur : seul le choisi reste visible. -->
+    <vbox id="ztoc-cfg-mistral" style="margin-top: 8px;">
+      <grid>
+        <columns><column/><column flex="1"/></columns>
+        <rows>
+          <row align="center">
+            <label value="Clé API :" control="ztoc-apikey"/>
+            <html:input id="ztoc-apikey" type="password" style="width: 30em;"
+                        preference="extensions.zotero.ztoc.apiKey"/>
+          </row>
+          <row align="center">
+            <label value="Modèle :" control="ztoc-model"/>
+            <html:input id="ztoc-model" type="text" style="width: 30em;"
+                        preference="extensions.zotero.ztoc.model"/>
+          </row>
+          <row align="center">
+            <label value="Point d'accès :" control="ztoc-endpoint"/>
+            <html:input id="ztoc-endpoint" type="text" style="width: 30em;"
+                        preference="extensions.zotero.ztoc.endpoint"/>
+          </row>
+        </rows>
+      </grid>
+      <description style="max-width: 46em; opacity: 0.8;">
+        Le texte des lignes candidates est transmis au service. Clé sur
+        console.mistral.ai.
+      </description>
+    </vbox>
+
+    <vbox id="ztoc-cfg-ollama" style="margin-top: 8px;">
+      <grid>
+        <columns><column/><column flex="1"/></columns>
+        <rows>
+          <row align="center">
+            <label value="Point d'accès :" control="ztoc-oendpoint"/>
+            <html:input id="ztoc-oendpoint" type="text" style="width: 30em;"
+                        preference="extensions.zotero.ztoc.ollamaEndpoint"/>
+          </row>
+          <row align="center">
+            <label value="Modèle :" control="ztoc-omodel"/>
+            <html:input id="ztoc-omodel" type="text" style="width: 30em;"
+                        preference="extensions.zotero.ztoc.ollamaModel"/>
+          </row>
+        </rows>
+      </grid>
+      <description style="max-width: 46em; opacity: 0.8;">
+        Tout reste sur votre machine. L'étiquette du modèle compte :
+        « llama3.1:8b », pas « llama3.1 ».
+      </description>
+    </vbox>
+
+    <vbox id="ztoc-cfg-cli" style="margin-top: 8px;">
+      <grid>
+        <columns><column/><column flex="1"/></columns>
+        <rows>
+          <row align="center">
+            <label value="Chemin du CLI :" control="ztoc-clipath"/>
+            <html:input id="ztoc-clipath" type="text" style="width: 30em;"
+                        preference="extensions.zotero.ztoc.cliPath"/>
+          </row>
+          <row align="center">
+            <label value="Modèle (facultatif) :" control="ztoc-climodel"/>
+            <html:input id="ztoc-climodel" type="text" style="width: 30em;"
+                        preference="extensions.zotero.ztoc.cliModel"/>
+          </row>
+        </rows>
+      </grid>
+      <description style="max-width: 46em; opacity: 0.8;">
+        Utilise l'abonnement déjà connecté de « claude », sans clé API. Indiquez
+        un chemin absolu si la commande n'est pas trouvée (par exemple
+        /opt/homebrew/bin/claude).
+      </description>
+    </vbox>
+
+    <hbox align="center" style="margin-top: 8px;">
+      <button id="ztoc-test" label="Tester le modèle"/>
+      <label id="ztoc-test-result" style="margin-left: 10px; opacity: 0.85;"/>
+    </hbox>
+  </groupbox>
+
+  <!-- ========================= 2 · COMPORTEMENT ======================== -->
+  <groupbox>
+    <label><html:h2>2 · Comportement</html:h2></label>
+
+    <checkbox label="Conserver une copie du PDF d'origine avant modification"
+              preference="extensions.zotero.ztoc.keepBackup"/>
+    <description style="max-width: 46em; opacity: 0.8; margin-left: 24px;">
+      Les copies sont rangées dans « zotero-TOC-backups », au sein du répertoire
+      de données de Zotero.
+    </description>
+
+    <checkbox label="Étiqueter l'item une fois le sommaire écrit"
+              preference="extensions.zotero.ztoc.addTag"/>
+    <hbox align="center" style="margin-left: 24px;">
+      <label value="Étiquette :" control="ztoc-tagname"/>
+      <html:input id="ztoc-tagname" type="text" style="width: 20em;"
+                  preference="extensions.zotero.ztoc.tagName"/>
+    </hbox>
+
+    <hbox align="center" style="margin-top: 6px;">
+      <label value="N'analyser que les N premières pages (0 = tout) :"
+             control="ztoc-maxpages"/>
+      <html:input id="ztoc-maxpages" type="number" min="0" style="width: 6em;"
+                  preference="extensions.zotero.ztoc.maxPages"/>
+    </hbox>
+  </groupbox>
+
+  <!-- ============================ 3 · USAGE =========================== -->
+  <groupbox>
+    <label><html:h2>3 · Usage</html:h2></label>
+    <description style="max-width: 46em;">
+      Sélectionnez un ou plusieurs documents dans votre bibliothèque, puis
+      clic droit → « zotero-TOC ». Les PDF qui possèdent déjà un sommaire sont
+      laissés intacts, sauf si vous demandez explicitement de le remplacer.
+      Ouvrez ensuite le PDF et affichez le volet « Sommaire » du lecteur.
+    </description>
+  </groupbox>
+
+</vbox>

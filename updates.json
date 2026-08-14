@@ -1,0 +1,19 @@
+{
+  "addons": {
+    "zotero-toc@equiriconi": {
+      "updates": [
+        {
+          "version": "1.0.0",
+          "update_link": "https://github.com/Liotou/zotero-TOC/releases/download/v1.0.0/zotero-toc-1.0.0.xpi",
+          "update_hash": "sha256:c7a044bbaccae4718b638c76be1494861632d34a746d0cd12fca1fe3b14ecb1f",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "7.0",
+              "strict_max_version": "9.*"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

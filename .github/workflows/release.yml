@@ -1,0 +1,76 @@
+# Publie une version dès qu'une étiquette « vX.Y.Z » est poussée :
+# fabrique le XPI, crée la release, puis met à jour updates.json sur main —
+# c'est ce fichier que Zotero interroge pour la mise à jour automatique.
+name: Publier une version
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Vérifier que l'étiquette correspond au manifeste
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MAN=$(node -p "require('./manifest.json').version")
+          if [ "$TAG" != "$MAN" ]; then
+            echo "Étiquette $TAG ≠ version du manifeste $MAN" >&2
+            exit 1
+          fi
+          echo "VERSION=$MAN" >> "$GITHUB_ENV"
+
+      - name: Fabriquer le XPI
+        run: |
+          OUT="zotero-toc-${VERSION}.xpi"
+          zip -qr "$OUT" manifest.json bootstrap.js prefs.js \
+              preferences.xhtml preferences.js lib -x '*.DS_Store'
+          echo "XPI=$OUT" >> "$GITHUB_ENV"
+          echo "SHA=$(sha256sum "$OUT" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Créer la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "$XPI" --title "$GITHUB_REF_NAME" --generate-notes
+
+      - name: Mettre à jour updates.json
+        run: |
+          cat > updates.json <<JSON
+          {
+            "addons": {
+              "zotero-toc@equiriconi": {
+                "updates": [
+                  {
+                    "version": "${VERSION}",
+                    "update_link": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${XPI}",
+                    "update_hash": "sha256:${SHA}",
+                    "applications": {
+                      "zotero": {
+                        "strict_min_version": "7.0",
+                        "strict_max_version": "9.*"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+          JSON
+          node -e "JSON.parse(require('fs').readFileSync('updates.json','utf8'))"
+
+      - name: Publier updates.json sur main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add updates.json
+          git diff --staged --quiet || git commit -m "updates.json : version ${VERSION}"
+          git push origin main
