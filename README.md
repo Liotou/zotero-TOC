@@ -34,8 +34,10 @@ La détection est d'abord **typographique**, et fonctionne sans aucun modèle ni
 1. **Découpage en colonnes.** Les gouttières verticales sont repérées afin de ne jamais fusionner deux colonnes en une seule ligne. C'est l'étape déterminante sur les revues scientifiques : sans elle, « 1 Introduction » se retrouve collé au corps du texte voisin et devient indétectable.
 2. **Profil du document.** Le style le plus employé, en nombre de caractères, définit le corps de texte. Tout ce qui s'en écarte devient candidat.
 3. **Faisceau d'indices.** Taille relative, police distincte, numérotation (`3.2 Méthode`), lexique de sections usuelles, isolement vertical, longueur de la ligne.
-4. **Filtres.** Titres courants, numéros de page, pages de table des matières imprimée, légendes de figures, mentions d'éditeur et encarts juridiques sont écartés.
+4. **Filtres.** Sont écartés : titres courants (y compris ceux dont le folio est en chiffres romains), pages de table des matières et d'index imprimées, intitulés qui se répètent à l'identique, légendes de figures, mentions d'éditeur et encarts juridiques.
 5. **Hiérarchie.** Le niveau vient de la numérotation lorsqu'elle existe, sinon d'un regroupement des tailles de police en quatre paliers au maximum.
+
+Les destinations pointent sur la **référence d'objet de la page**, c'est-à-dire la page telle que le lecteur la numérote. Les numéros de page imprimés ne sont jamais utilisés pour naviguer : dans un ouvrage dont la pagination démarre après les pages liminaires, un chapitre annoncé « page 1 » au sommaire imprimé est bien atteint à la page 20 du lecteur.
 
 ### Ce que cela donne
 
@@ -43,10 +45,10 @@ Mesuré sur 70 documents d'une bibliothèque réelle possédant un vrai sommaire
 
 | | |
 |---|---|
-| Précision moyenne | **78 %** |
+| Précision moyenne | **79 %** |
 | Rappel moyen | **78 %** |
-| F1 médian | **85 %** |
-| Documents au-dessus de 70 % de F1 | **52 / 70** |
+| F1 médian | **86 %** |
+| Documents au-dessus de 70 % de F1 | **53 / 70** |
 
 Ces chiffres sont plutôt pessimistes : une partie des sommaires de référence sont eux-mêmes médiocres (numérisations dont les entrées sont « p. 69 », « image 3 », ou des exports PowerPoint intitulés « Slide 12 : … »), et comptent comme des échecs alors que la détection est correcte.
 
