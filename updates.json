@@ -3,9 +3,9 @@
     "zotero-toc@equiriconi": {
       "updates": [
         {
-          "version": "1.0.0",
-          "update_link": "https://github.com/Liotou/zotero-TOC/releases/download/v1.0.0/zotero-toc-1.0.0.xpi",
-          "update_hash": "sha256:4109996e2975158da78462d8bf834658c5d3a4b0536c172adee34c495e003d58",
+          "version": "1.0.1",
+          "update_link": "https://github.com/Liotou/zotero-TOC/releases/download/v1.0.1/zotero-toc-1.0.1.xpi",
+          "update_hash": "sha256:5a887c0cdd00bf749d8eb9947c5144ed139ab83306527e7edb861cf4d4ef3cdf",
           "applications": {
             "zotero": {
               "strict_min_version": "7.0",
