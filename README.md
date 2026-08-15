@@ -1,6 +1,6 @@
 # zotero-TOC
 
-Extension Zotero (7, 8, 9) qui **génère le sommaire manquant d'un PDF et l'inscrit dans le fichier**, afin que le volet « Sommaire » du lecteur Zotero devienne utilisable.
+Extension Zotero (7, 8, 9) qui **génère le sommaire manquant d'un PDF ou d'un EPUB et l'inscrit dans le fichier**, afin que le volet « Sommaire » du lecteur Zotero devienne utilisable.
 
 Plus de la moitié des PDF d'une bibliothèque de recherche n'ont aucun signet : le volet reste vide et l'on navigue à la molette. zotero-TOC reconstitue la structure à partir de la mise en page, puis l'écrit dans le PDF lui-même — le sommaire reste donc valable hors de Zotero, dans n'importe quel lecteur.
 
@@ -23,9 +23,9 @@ Sélectionnez un ou plusieurs documents dans votre bibliothèque, puis **clic dr
 | **Régénérer en remplaçant le sommaire existant** | Le seul moyen d'écraser un sommaire déjà présent. |
 | **Générer avec l'appui du modèle** | Force le recours au modèle configuré, même si la détection semblait sûre. |
 
-Ouvrez ensuite le PDF et affichez le volet « Sommaire » du lecteur.
+Ouvrez ensuite le document et affichez le volet « Sommaire » du lecteur.
 
-Un PDF qui possède déjà un sommaire n'est **jamais** modifié, sauf demande explicite : le sommaire d'origine de l'éditeur est presque toujours meilleur qu'une détection automatique.
+Un document qui possède déjà un sommaire n'est **jamais** modifié, sauf demande explicite : le sommaire d'origine de l'éditeur est presque toujours meilleur qu'une détection automatique.
 
 ## Comment les titres sont détectés
 
@@ -51,6 +51,16 @@ Mesuré sur 70 documents d'une bibliothèque réelle possédant un vrai sommaire
 | Documents au-dessus de 70 % de F1 | **53 / 70** |
 
 Ces chiffres sont plutôt pessimistes : une partie des sommaires de référence sont eux-mêmes médiocres (numérisations dont les entrées sont « p. 69 », « image 3 », ou des exports PowerPoint intitulés « Slide 12 : … »), et comptent comme des échecs alors que la détection est correcte.
+
+## EPUB
+
+Les EPUB sont traités par les mêmes entrées de menu, mais par une voie bien plus directe : un EPUB est du XHTML, où les titres sont explicitement balisés `<h1>`–`<h6>`. Aucune heuristique typographique n'intervient — la hiérarchie est celle qu'a posée l'auteur du fichier, et le modèle n'est jamais sollicité.
+
+Le lecteur de Zotero s'appuie sur epub.js, qui lit le document de navigation EPUB 3 (`properties="nav"`) et, à défaut, le `toc.ncx` d'EPUB 2. Le plugin réécrit celui des deux qui fait foi, et en ajoute un si aucun n'existe. Les ancres manquantes sont insérées dans les chapitres pour que chaque renvoi vise le bon titre et non le début du fichier.
+
+Un EPUB dont le sommaire compte **moins de cinq entrées** est considéré comme dépourvu : c'est le cas typique du fichier réduit à « Démarrer », que le plugin est justement là pour réparer.
+
+**Sûreté de l'archive.** Les entrées auxquelles on ne touche pas sont recopiées telles quelles, octets compressés compris — il n'y a donc ni recompression ni perte possible, et aucun compresseur à embarquer. Les entrées modifiées sont écrites sans compression, ce qui est légal, et `mimetype` reste la première entrée. Vérifié sur les 23 EPUB d'une bibliothèque réelle : reconstruction **à l'identique dans les 23 cas** (mêmes entrées, mêmes contenus, archives valides).
 
 ## Appui d'un modèle (facultatif)
 
@@ -112,6 +122,8 @@ Les modules de `lib/` n'ont aucune dépendance et sont conçus pour tourner auss
 | `lib/extract.js` | extraction des lignes et de leur typographie, découpage en colonnes (via le pdf.js de Zotero) |
 | `lib/detect.js` | détection des titres et de leur hiérarchie |
 | `lib/ai.js` | appui facultatif d'un modèle |
+| `lib/zip.js` | lecture et réécriture d'archives ZIP, sans recompression |
+| `lib/epub.js` | relevé des titres d'un EPUB et génération de son document de navigation |
 
 ## Licence
 

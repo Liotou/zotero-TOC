@@ -62,14 +62,17 @@ ZoteroTOC = {
 		if (this.mods) return this.mods;
 		let scope = {};
 		let loader = Services.scriptloader;
-		for (let f of ["lib/pdf-lib.js", "lib/extract.js", "lib/detect.js", "lib/ai.js"]) {
+		for (let f of ["lib/pdf-lib.js", "lib/zip.js", "lib/epub.js",
+			"lib/extract.js", "lib/detect.js", "lib/ai.js"]) {
 			loader.loadSubScript(this.rootURI + f, scope);
 		}
 		this.mods = {
 			PDF: scope.ZTOC_PDF,
 			EX: scope.ZTOC_EXTRACT,
 			DT: scope.ZTOC_DETECT,
-			AI: scope.ZTOC_AI
+			AI: scope.ZTOC_AI,
+			ZIP: scope.ZTOC_ZIP,
+			EPUB: scope.ZTOC_EPUB
 		};
 		return this.mods;
 	},
@@ -199,8 +202,13 @@ ZoteroTOC = {
 		let { PDF, EX, DT, AI } = this.loadModules();
 		let name = item.getField("title") || item.attachmentFilename || "(sans titre)";
 
-		if (!item.isFileAttachment() || item.attachmentContentType !== "application/pdf") {
-			return { status: "skipped", message: "n'est pas un PDF", name };
+		if (!item.isFileAttachment()) {
+			return { status: "skipped", message: "n'est pas un fichier", name };
+		}
+		let type = item.attachmentContentType;
+		if (type === "application/epub+zip") return this.processEPUB(item, opts, name);
+		if (type !== "application/pdf") {
+			return { status: "skipped", message: "n'est ni un PDF ni un EPUB", name };
 		}
 		if (item.library && item.library.editable === false) {
 			return { status: "skipped", message: "bibliothèque en lecture seule", name };
@@ -301,26 +309,7 @@ ZoteroTOC = {
 			return { status: "error", message: "enregistrement : " + (e.message || e), name };
 		}
 
-		// Prévenir Zotero que la pièce jointe a changé (index et synchronisation).
-		try {
-			await item.attachmentModificationTime;
-			item.attachmentSyncState = Zotero.Sync.Storage.Local.SYNC_STATE_TO_UPLOAD;
-			await item.saveTx();
-		}
-		catch (e) { log("état de synchronisation : " + e); }
-
-		if (getPref("addTag", true)) {
-			try {
-				let tag = String(getPref("tagName", "sommaire-généré")).trim();
-				let parent = item.parentItem;
-				let target = parent || item;
-				if (tag && !target.hasTag(tag)) {
-					target.addTag(tag);
-					await target.saveTx();
-				}
-			}
-			catch (e) { log("étiquette : " + e); }
-		}
+		await this.afterWrite(item);
 
 		return {
 			status: "ok",
@@ -329,6 +318,110 @@ ZoteroTOC = {
 			message: headings.length + " entrées" + (usedAI ? " (avec appui du modèle)" : ""),
 			name
 		};
+	},
+
+	// Un EPUB porte ses titres explicitement (<h1>…<h6>) : aucune heuristique
+	// n'est nécessaire, seule la réécriture de l'archive demande du soin.
+	// Un sommaire d'à peine quelques entrées (souvent « Démarrer » seul) est
+	// traité comme absent : c'est le cas que le plugin est censé réparer.
+	TOC_MINIMUM: 5,
+
+	async processEPUB(item, opts, name) {
+		let { PDF, ZIP, EPUB } = this.loadModules();
+
+		if (item.library && item.library.editable === false) {
+			return { status: "skipped", message: "bibliothèque en lecture seule", name };
+		}
+		let path;
+		try { path = await item.getFilePathAsync(); }
+		catch (e) { path = null; }
+		if (!path) return { status: "skipped", message: "fichier absent du disque", name };
+
+		let bytes;
+		try { bytes = await IOUtils.read(path); }
+		catch (e) { return { status: "error", message: "lecture impossible : " + e, name }; }
+
+		let info;
+		try { info = await EPUB.inspect(bytes, ZIP, PDF.inflate); }
+		catch (e) { return { status: "error", message: "EPUB illisible : " + (e.message || e), name }; }
+
+		if (info.tocEntries >= this.TOC_MINIMUM && !opts.overwrite) {
+			return {
+				status: "skipped",
+				message: "possède déjà un sommaire (" + info.tocEntries + " entrées)",
+				name
+			};
+		}
+
+		let result;
+		try {
+			result = await EPUB.writeTOC(bytes, ZIP, PDF.inflate, {
+				title: item.parentItem ? item.parentItem.getField("title") : "Sommaire"
+			});
+		}
+		catch (e) {
+			return { status: "skipped", message: (e.message || String(e)), name };
+		}
+
+		if (opts.preview) {
+			let apercu = await this.epubPreview(bytes, ZIP, PDF.inflate, EPUB);
+			if (!this.confirmHeadings(opts.window, name, apercu, false)) {
+				return { status: "skipped", message: "abandonné", name };
+			}
+		}
+
+		if (getPref("keepBackup", true)) {
+			try { await this.backup(path, item); }
+			catch (e) { log("sauvegarde : " + e); }
+		}
+
+		try {
+			await IOUtils.write(path, result.bytes, { tmpPath: path + ".ztoc-tmp" });
+		}
+		catch (e) {
+			return { status: "error", message: "enregistrement : " + (e.message || e), name };
+		}
+
+		await this.afterWrite(item);
+
+		return {
+			status: "ok",
+			count: result.count,
+			usedAI: false,
+			message: result.count + " entrées",
+			name
+		};
+	},
+
+	// Aperçu : les mêmes titres que ceux qui seront écrits, sans les ancres.
+	async epubPreview(bytes, ZIP, inflate, EPUB) {
+		try {
+			let book = await EPUB.openBook(bytes, ZIP, inflate);
+			let hs = await EPUB.collectHeadings(book, ZIP, inflate);
+			return hs.map(h => ({ title: h.text, level: h.level, hasPages: false }));
+		}
+		catch (e) { return []; }
+	},
+
+	// Prévenir Zotero que la pièce jointe a changé (index et synchronisation).
+	async afterWrite(item) {
+		try {
+			item.attachmentSyncState = Zotero.Sync.Storage.Local.SYNC_STATE_TO_UPLOAD;
+			await item.saveTx();
+		}
+		catch (e) { log("état de synchronisation : " + e); }
+
+		if (getPref("addTag", true)) {
+			try {
+				let tag = String(getPref("tagName", "sommaire-généré")).trim();
+				let target = item.parentItem || item;
+				if (tag && !target.hasTag(tag)) {
+					target.addTag(tag);
+					await target.saveTx();
+				}
+			}
+			catch (e) { log("étiquette : " + e); }
+		}
 	},
 
 	// Copie de sauvegarde, rangée hors du dossier de stockage de Zotero pour ne
@@ -348,7 +441,9 @@ ZoteroTOC = {
 		try {
 			let sample = headings.slice(0, 15)
 				.map(h => "  ".repeat(Math.max(0, h.level - 1)) + "• " + h.title
-					+ "  (p. " + (h.pageIndex + 1) + ")")
+					// Un EPUB n'a pas de pagination : on n'annonce donc rien.
+					+ (typeof h.pageIndex === "number" && h.pageIndex >= 0 && h.hasPages !== false
+						? "  (p. " + (h.pageIndex + 1) + ")" : ""))
 				.join("\n");
 			let more = headings.length > 15 ? "\n  … et " + (headings.length - 15) + " autres" : "";
 			let msg = name + "\n\n"
@@ -375,9 +470,9 @@ ZoteroTOC = {
 		let pw = null;
 		try {
 			let items = window.ZoteroPane.getSelectedItems();
-			let attachments = await this.collectPDFs(items);
+			let attachments = await this.collectTargets(items);
 			if (!attachments.length) {
-				toast("zotero-TOC", "Aucun PDF dans la sélection.", "error");
+				toast("zotero-TOC", "Aucun PDF ni EPUB dans la sélection.", "error");
 				return;
 			}
 
@@ -395,7 +490,7 @@ ZoteroTOC = {
 			pw.changeHeadline("zotero-TOC");
 			let itemProgress = new pw.ItemProgress(
 				"chrome://zotero/skin/treeitem-attachment-pdf.png",
-				"Analyse de " + attachments.length + " PDF…");
+				"Analyse de " + attachments.length + " document(s)…");
 			pw.show();
 
 			let done = 0, ok = 0, skipped = 0, failed = 0;
@@ -453,8 +548,8 @@ ZoteroTOC = {
 		}
 	},
 
-	// Rassemble les pièces jointes PDF d'une sélection quelconque.
-	async collectPDFs(items) {
+	// Rassemble les pièces jointes traitables (PDF et EPUB) d'une sélection.
+	async collectTargets(items) {
 		let out = [];
 		let seen = new Set();
 		for (let item of items || []) {
@@ -466,14 +561,15 @@ ZoteroTOC = {
 				}
 				for (let att of list) {
 					if (!att || !att.isFileAttachment || !att.isFileAttachment()) continue;
-					if (att.attachmentContentType !== "application/pdf") continue;
+					let t = att.attachmentContentType;
+					if (t !== "application/pdf" && t !== "application/epub+zip") continue;
 					if (seen.has(att.id)) continue;
 					seen.add(att.id);
 					out.push(att);
 				}
 			}
 			catch (e) {
-				log("collectPDFs : " + e);
+				log("collectTargets : " + e);
 			}
 		}
 		return out;
@@ -488,7 +584,8 @@ ZoteroTOC = {
 			return items.some(i =>
 				(i.isRegularItem && i.isRegularItem())
 				|| (i.isAttachment && i.isAttachment()
-					&& i.attachmentContentType === "application/pdf"));
+					&& (i.attachmentContentType === "application/pdf"
+						|| i.attachmentContentType === "application/epub+zip")));
 		}
 		catch (e) {
 			return false;
