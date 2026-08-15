@@ -38,3 +38,5 @@ pref("extensions.zotero.ztoc.maxPages", 0);
 pref("extensions.zotero.ztoc.diagnosticOut", "");
 // PDF sur lequel dérouler la chaîne complète pendant le diagnostic.
 pref("extensions.zotero.ztoc.diagnosticPdf", "");
+// Clé d'un item de la bibliothèque, pour dérouler le traitement complet.
+pref("extensions.zotero.ztoc.diagnosticItemKey", "");

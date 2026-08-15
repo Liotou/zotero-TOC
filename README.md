@@ -80,6 +80,8 @@ Cette approche a été vérifiée sur 483 PDF réels :
 - **aucun avertissement `qpdf` introduit**, sur 183 fichiers pourtant déjà imparfaits avant traitement ;
 - les PDF chiffrés sont détectés et refusés plutôt que traités.
 
+La décompression FlateDecode est implémentée en JavaScript pur, et non déléguée à `DecompressionStream` : ces API du DOM n'existent pas dans le contexte système où s'exécute un plugin Zotero. Elle a été vérifiée octet par octet contre la référence du système sur 2 744 flux.
+
 Par prudence supplémentaire, une copie du fichier d'origine est conservée avant modification dans `zotero-TOC-backups`, au sein du répertoire de données de Zotero (réglage désactivable).
 
 À noter : modifier un PDF change son empreinte, Zotero le renverra donc au serveur à la prochaine synchronisation.
@@ -88,8 +90,9 @@ Par prudence supplémentaire, une copie du fichier d'origine est conservée avan
 
 Si le traitement échoue et que le message ne suffit pas, réglez ces deux préférences cachées (`about:config` de Zotero, ou `Préférences → Avancées → Éditeur de configuration`) :
 
+- `extensions.zotero.ztoc.diagnosticOut` : chemin du rapport JSON à écrire ;
 - `extensions.zotero.ztoc.diagnosticPdf` : chemin d'un PDF à analyser ;
-- `extensions.zotero.ztoc.diagnosticOut` : chemin du rapport JSON à écrire.
+- `extensions.zotero.ztoc.diagnosticItemKey` : clé d'un item de la bibliothèque, pour dérouler le traitement exactement comme le fait le menu.
 
 Au démarrage suivant, le plugin déroule la chaîne complète et consigne l'étape fautive. Laissez `diagnosticOut` vide pour désactiver.
 

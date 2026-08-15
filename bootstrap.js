@@ -592,6 +592,30 @@ ZoteroTOC.runDiagnostic = async function (outPath) {
 		let pdfjs = await this.getPdfjs();
 		push("pdfjs", "chargé, version " + (pdfjs.version || "?"));
 
+		// Diagnostic sur une pièce jointe réelle : déroule le traitement complet
+		// tel que le menu l'exécute, message d'erreur compris.
+		let itemKey = String(getPref("diagnosticItemKey", "")).trim();
+		if (itemKey) {
+			let att = null;
+			for (let lib of Zotero.Libraries.getAll()) {
+				try {
+					let it = await Zotero.Items.getByLibraryAndKeyAsync(lib.libraryID, itemKey);
+					if (it) { att = it; break; }
+				}
+				catch (e) { /* bibliothèque suivante */ }
+			}
+			if (!att) push("item", "clé introuvable : " + itemKey);
+			else {
+				if (att.isRegularItem && att.isRegularItem()) {
+					let kids = await Zotero.Items.getAsync(att.getAttachments());
+					att = kids.find(k => k.attachmentContentType === "application/pdf") || att;
+				}
+				push("item", att.key + " — " + (att.attachmentFilename || "?"));
+				let res = await this.processAttachment(att, { overwrite: true, preview: false });
+				push("traitement", JSON.stringify(res));
+			}
+		}
+
 		let src = String(getPref("diagnosticPdf", "")).trim();
 		if (src) {
 			let bytes = await IOUtils.read(src);
