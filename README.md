@@ -1,6 +1,6 @@
 # zotero-TOC
 
-Extension Zotero (7, 8, 9) qui **génère le sommaire manquant d'un PDF ou d'un EPUB et l'inscrit dans le fichier**, afin que le volet « Sommaire » du lecteur Zotero devienne utilisable.
+Extension Zotero (7 à 10) qui **génère le sommaire manquant d'un PDF ou d'un EPUB et l'inscrit dans le fichier**, afin que le volet « Sommaire » du lecteur Zotero devienne utilisable.
 
 Plus de la moitié des PDF d'une bibliothèque de recherche n'ont aucun signet : le volet reste vide et l'on navigue à la molette. zotero-TOC reconstitue la structure à partir de la mise en page, puis l'écrit dans le PDF lui-même — le sommaire reste donc valable hors de Zotero, dans n'importe quel lecteur.
 
