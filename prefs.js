@@ -43,3 +43,5 @@ pref("extensions.zotero.ztoc.diagnosticItemKey", "");
 // Sommaire collé : item de la bibliothèque et fichier texte à lui appliquer.
 pref("extensions.zotero.ztoc.diagnosticPasteItem", "");
 pref("extensions.zotero.ztoc.diagnosticPasteFile", "");
+// Contrôle de la fenêtre de collage au démarrage (diagnostic).
+pref("extensions.zotero.ztoc.diagnosticDialog", false);

@@ -38,7 +38,7 @@ jobs:
         run: |
           OUT="zotero-toc-${VERSION}.xpi"
           zip -qr "$OUT" manifest.json bootstrap.js prefs.js \
-              preferences.xhtml preferences.js paste.xhtml paste.js \
+              preferences.xhtml preferences.js content \
               lib -x '*.DS_Store'
           echo "XPI=$OUT" >> "$GITHUB_ENV"
           echo "SHA=$(sha256sum "$OUT" | cut -d' ' -f1)" >> "$GITHUB_ENV"

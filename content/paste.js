@@ -19,6 +19,9 @@
 
 	function init() {
 		let a = args();
+		// Témoin d'instanciation : permet à l'appelant de distinguer une
+		// annulation d'une fenêtre qui ne s'est jamais affichée.
+		a.ouverte = true;
 		let zone = document.getElementById("ztoc-paste-area");
 		let ia = document.getElementById("ztoc-paste-ai");
 

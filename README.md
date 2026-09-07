@@ -81,6 +81,8 @@ Les intitulés qui restent introuvables — texte du sommaire différent de celu
 
 Cette fonction ne concerne que les PDF : un EPUB tient déjà sa structure de ses propres balises de titre.
 
+La fenêtre est servie depuis un espace de noms `chrome://` enregistré au démarrage : un document XUL ne s'instancie pas autrement, et resterait vide s'il était chargé directement depuis l'archive du plugin.
+
 ## EPUB
 
 Les EPUB sont traités par les mêmes entrées de menu, mais par une voie bien plus directe : un EPUB est du XHTML, où les titres sont explicitement balisés `<h1>`–`<h6>`. Aucune heuristique typographique n'intervient — la hiérarchie est celle qu'a posée l'auteur du fichier, et le modèle n'est jamais sollicité.
@@ -131,7 +133,8 @@ Si le traitement échoue et que le message ne suffit pas, réglez ces deux préf
 
 - `extensions.zotero.ztoc.diagnosticOut` : chemin du rapport JSON à écrire ;
 - `extensions.zotero.ztoc.diagnosticPdf` : chemin d'un PDF à analyser ;
-- `extensions.zotero.ztoc.diagnosticItemKey` : clé d'un item de la bibliothèque, pour dérouler le traitement exactement comme le fait le menu.
+- `extensions.zotero.ztoc.diagnosticItemKey` : clé d'un item de la bibliothèque, pour dérouler le traitement exactement comme le fait le menu ;
+- `extensions.zotero.ztoc.diagnosticDialog` : ouvre la fenêtre de collage au démarrage et vérifie qu'elle s'instancie réellement.
 
 Au démarrage suivant, le plugin déroule la chaîne complète et consigne l'étape fautive. Laissez `diagnosticOut` vide pour désactiver.
 

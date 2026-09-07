@@ -56,6 +56,32 @@ ZoteroTOC = {
 		this.rootURI = rootURI;
 	},
 
+	// Une fenêtre XUL ne s'instancie QUE depuis une URL « chrome:// » : chargée
+	// directement depuis l'archive du plugin, elle reste vide. Il faut donc
+	// déclarer un espace de noms chrome, comme le font les autres extensions.
+	registerChrome() {
+		try {
+			let aomStartup = Components.classes[
+				"@mozilla.org/addons/addon-manager-startup;1"
+			].getService(Components.interfaces.amIAddonManagerStartup);
+			let manifestURI = Services.io.newURI(this.rootURI + "manifest.json");
+			this._chromeHandle = aomStartup.registerChrome(manifestURI, [
+				["content", "zotero-toc", this.rootURI + "content/"]
+			]);
+			log("espace chrome enregistré");
+		}
+		catch (e) {
+			this._chromeHandle = null;
+			log("registerChrome : " + e);
+		}
+	},
+
+	unregisterChrome() {
+		try { if (this._chromeHandle) this._chromeHandle.destruct(); }
+		catch (e) { /* sans importance */ }
+		this._chromeHandle = null;
+	},
+
 	// ---- Chargement des modules internes ----
 
 	loadModules() {
@@ -436,12 +462,25 @@ ZoteroTOC = {
 			texte: "",
 			utiliserIA: false
 		};
+		let url = this._chromeHandle
+			? "chrome://zotero-toc/content/paste.xhtml"
+			: this.rootURI + "content/paste.xhtml";
 		try {
-			window.openDialog(this.rootURI + "paste.xhtml", "ztoc-paste",
+			window.openDialog(url, "ztoc-paste",
 				"chrome,dialog,modal,centerscreen,resizable", params);
 		}
 		catch (e) {
 			log("fenêtre de collage : " + e);
+			toast("zotero-TOC", "Impossible d'ouvrir la fenêtre : " + (e.message || e), "error");
+			return null;
+		}
+		// Une fenêtre XUL qui ne s'instancie pas se ferme sans rien signaler :
+		// on distingue ce cas d'une annulation volontaire.
+		if (params.ouverte !== true && params.valide !== true) {
+			toast("zotero-TOC",
+				"La fenêtre de collage ne s'est pas ouverte. Signalez-le : "
+				+ "espace chrome " + (this._chromeHandle ? "enregistré" : "NON enregistré") + ".",
+				"error");
 			return null;
 		}
 		if (!params.valide || !String(params.texte).trim()) return null;
@@ -863,6 +902,7 @@ function install() {}
 
 async function startup({ id, version, rootURI }) {
 	ZoteroTOC.init({ id, version, rootURI });
+	ZoteroTOC.registerChrome();
 
 	// Exposé pour le panneau de préférences (bouton de test du modèle).
 	Zotero.ZoteroTOC = ZoteroTOC;
@@ -921,6 +961,42 @@ ZoteroTOC.runDiagnostic = async function (outPath) {
 				let res = await this.processAttachment(att, { overwrite: true, preview: false });
 				push("traitement", JSON.stringify(res));
 			}
+		}
+
+		// Contrôle de la fenêtre de collage : on l'ouvre sans modalité, on
+		// regarde si son document s'est réellement instancié, puis on referme.
+		if (getPref("diagnosticDialog", false)) {
+			push("chrome", this._chromeHandle ? "espace enregistré" : "NON enregistré");
+			let url = "chrome://zotero-toc/content/paste.xhtml";
+			try {
+				let reponse = await new Promise((resolve) => {
+					let xhr = new XMLHttpRequest();
+					xhr.open("GET", url);
+					xhr.onload = () => resolve("HTTP " + xhr.status + ", "
+						+ (xhr.responseText || "").length + " octets");
+					xhr.onerror = () => resolve("inaccessible");
+					xhr.send();
+				});
+				push("url chrome", reponse);
+			}
+			catch (e) { push("url chrome", "erreur : " + (e.message || e)); }
+
+			let win = Zotero.getMainWindow();
+			let params = { titre: "contrôle", iaDisponible: false, valide: false };
+			try {
+				let dlg = win.openDialog(url, "ztoc-paste-test",
+					"chrome,dialog,centerscreen,resizable", params);
+				await new Promise(r => win.setTimeout(r, 2500));
+				let racine = "?";
+				try { racine = dlg.document.documentElement.localName; } catch (e) { racine = "inaccessible"; }
+				let zone = null;
+				try { zone = dlg.document.getElementById("ztoc-paste-area") ? "présente" : "absente"; }
+				catch (e) { zone = "inaccessible"; }
+				push("fenêtre", "racine=" + racine + " | zone de saisie=" + zone
+					+ " | témoin d'ouverture=" + (params.ouverte === true));
+				try { dlg.close(); } catch (e) { /* sans importance */ }
+			}
+			catch (e) { push("fenêtre", "ERREUR : " + (e.message || e)); }
 		}
 
 		// Diagnostic du collage de sommaire : le texte est pris dans une
@@ -991,7 +1067,10 @@ function onMainWindowUnload({ window }) {
 }
 
 function shutdown() {
-	if (ZoteroTOC) ZoteroTOC.removeFromAllWindows();
+	if (ZoteroTOC) {
+		ZoteroTOC.removeFromAllWindows();
+		ZoteroTOC.unregisterChrome();
+	}
 	try { delete Zotero.ZoteroTOC; } catch (e) { /* ignore */ }
 	ZoteroTOC = undefined;
 }
