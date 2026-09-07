@@ -8,6 +8,7 @@ rm -f "$OUT"
 zip -qr "$OUT" \
     manifest.json bootstrap.js prefs.js \
     preferences.xhtml preferences.js \
+    paste.xhtml paste.js \
     lib \
     -x '*.DS_Store'
 echo "$OUT  ($(wc -c < "$OUT" | tr -d ' ') octets)"

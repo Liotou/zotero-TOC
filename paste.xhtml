@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        xmlns:html="http://www.w3.org/1999/xhtml"
+        title="zotero-TOC — coller un sommaire"
+        width="720" height="600"
+        persist="width height screenX screenY">
+
+  <script src="paste.js"/>
+
+  <vbox flex="1" style="padding: 12px;">
+    <description style="max-width: 66em; margin-bottom: 6px;">
+      Collez ci-dessous le sommaire du document : recopié de sa page « Table des
+      matières », du site de l'éditeur, du dos de l'ouvrage. Le plugin retrouvera
+      chaque intitulé dans le texte et pointera la destination sur son début réel.
+    </description>
+
+    <description style="max-width: 66em; opacity: 0.8; margin-bottom: 8px;">
+      Les numéros de page imprimés sont utiles mais facultatifs : ils servent
+      d'indice, jamais de destination. Le décalage avec la pagination du lecteur
+      est estimé automatiquement. L'indentation est lue comme la hiérarchie.
+    </description>
+
+    <html:textarea id="ztoc-paste-area" flex="1" rows="18"
+                   style="flex: 1; width: 100%; font-family: monospace;
+                          font-size: 12px; min-height: 300px;"
+                   placeholder="1. Introduction .......... 1&#10;   1.1 Contexte .......... 5&#10;2. Méthode .......... 24"/>
+
+    <hbox align="center" style="margin-top: 8px;">
+      <checkbox id="ztoc-paste-ai"
+                label="Solliciter le modèle pour les intitulés introuvables"/>
+      <spacer flex="1"/>
+      <label id="ztoc-paste-count" style="opacity: 0.75;"/>
+    </hbox>
+
+    <hbox pack="end" style="margin-top: 12px;">
+      <button id="ztoc-paste-cancel" label="Annuler"/>
+      <button id="ztoc-paste-ok" label="Analyser le sommaire" default="true"
+              style="margin-left: 8px;"/>
+    </hbox>
+  </vbox>
+</window>

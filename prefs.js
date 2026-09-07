@@ -40,3 +40,6 @@ pref("extensions.zotero.ztoc.diagnosticOut", "");
 pref("extensions.zotero.ztoc.diagnosticPdf", "");
 // Clé d'un item de la bibliothèque, pour dérouler le traitement complet.
 pref("extensions.zotero.ztoc.diagnosticItemKey", "");
+// Sommaire collé : item de la bibliothèque et fichier texte à lui appliquer.
+pref("extensions.zotero.ztoc.diagnosticPasteItem", "");
+pref("extensions.zotero.ztoc.diagnosticPasteFile", "");

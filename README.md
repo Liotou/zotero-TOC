@@ -22,6 +22,7 @@ Sélectionnez un ou plusieurs documents dans votre bibliothèque, puis **clic dr
 | **Générer le sommaire (avec aperçu)…** | Affiche les titres détectés et demande confirmation avant d'écrire. |
 | **Régénérer en remplaçant le sommaire existant** | Le seul moyen d'écraser un sommaire déjà présent. |
 | **Générer avec l'appui du modèle** | Force le recours au modèle configuré, même si la détection semblait sûre. |
+| **Coller un sommaire…** | Vous fournissez le sommaire, le plugin le retrouve dans le document. Voir ci-dessous. |
 
 Ouvrez ensuite le document et affichez le volet « Sommaire » du lecteur.
 
@@ -51,6 +52,34 @@ Mesuré sur 70 documents d'une bibliothèque réelle possédant un vrai sommaire
 | Documents au-dessus de 70 % de F1 | **53 / 70** |
 
 Ces chiffres sont plutôt pessimistes : une partie des sommaires de référence sont eux-mêmes médiocres (numérisations dont les entrées sont « p. 69 », « image 3 », ou des exports PowerPoint intitulés « Slide 12 : … »), et comptent comme des échecs alors que la détection est correcte.
+
+## Coller un sommaire
+
+Quand la détection automatique déçoit — ouvrage numérisé, mise en page inhabituelle, titres sans marque typographique —, le plus sûr reste de fournir le sommaire soi-même : **clic droit → zotero-TOC → Coller un sommaire…**
+
+Recopiez-le de la page « Table des matières » du document, du site de l'éditeur, du dos de l'ouvrage. Le plugin ne se contente pas de l'enregistrer : il **retrouve chaque intitulé dans le texte** et pointe la destination sur son début réel.
+
+Deux difficultés sont traitées explicitement, et ce sont elles qui font tout l'intérêt de la fonction :
+
+**Les titres se répètent en tête de page.** Un titre de chapitre figure souvent en haut de chacune de ses pages. Chercher naïvement le texte renverrait une de ces répétitions. Les titres courants sont donc repérés et fortement pénalisés, la taille de police et la position dans la page départagent le reste, et l'ordre du sommaire est imposé globalement : les destinations doivent former une suite de pages croissantes, ce qui élimine d'un coup les occurrences isolées.
+
+**Les numéros de page imprimés ne sont pas ceux du lecteur.** Un ouvrage paginé après ses pages liminaires les décale d'une vingtaine de pages. Ce décalage est **estimé automatiquement** sur les intitulés les plus sûrs, puis sert d'indice pour les autres. Les numéros collés ne servent jamais de destination — seulement de faisceau de présomptions.
+
+Les numéros de page sont donc facultatifs : un sommaire recopié sans pagination fonctionne. L'indentation, elle, est lue comme la hiérarchie.
+
+Mesuré sur 30 documents dont le sommaire d'éditeur sert de référence, en fournissant les intitulés **sans aucun numéro de page** (le cas le plus défavorable) :
+
+| | |
+|---|---|
+| Intitulé placé sur la bonne page | **84 %** |
+| À une page près | 2 % |
+| Non retrouvé dans le texte | 12 % |
+
+Avec les numéros de page imprimés, la précision est nettement meilleure. Sur l'ouvrage qui avait motivé la fonction, les dix entrées sont retrouvées exactement, décalage de pagination estimé à 19 pages.
+
+Les intitulés qui restent introuvables — texte du sommaire différent de celui du corps, numérisation approximative — peuvent être soumis au modèle, qui **choisit parmi des lignes réellement présentes** dans le document, sans jamais en rédiger. La case est proposée dans la fenêtre de collage lorsqu'un fournisseur est configuré.
+
+Cette fonction ne concerne que les PDF : un EPUB tient déjà sa structure de ses propres balises de titre.
 
 ## EPUB
 
@@ -122,6 +151,7 @@ Les modules de `lib/` n'ont aucune dépendance et sont conçus pour tourner auss
 | `lib/extract.js` | extraction des lignes et de leur typographie, découpage en colonnes (via le pdf.js de Zotero) |
 | `lib/detect.js` | détection des titres et de leur hiérarchie |
 | `lib/ai.js` | appui facultatif d'un modèle |
+| `lib/toc-paste.js` | analyse d'un sommaire collé et localisation des intitulés dans le document |
 | `lib/zip.js` | lecture et réécriture d'archives ZIP, sans recompression |
 | `lib/epub.js` | relevé des titres d'un EPUB et génération de son document de navigation |
 

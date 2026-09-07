@@ -63,7 +63,7 @@ ZoteroTOC = {
 		let scope = {};
 		let loader = Services.scriptloader;
 		for (let f of ["lib/pdf-lib.js", "lib/zip.js", "lib/epub.js",
-			"lib/extract.js", "lib/detect.js", "lib/ai.js"]) {
+			"lib/extract.js", "lib/detect.js", "lib/toc-paste.js", "lib/ai.js"]) {
 			loader.loadSubScript(this.rootURI + f, scope);
 		}
 		this.mods = {
@@ -72,7 +72,8 @@ ZoteroTOC = {
 			DT: scope.ZTOC_DETECT,
 			AI: scope.ZTOC_AI,
 			ZIP: scope.ZTOC_ZIP,
-			EPUB: scope.ZTOC_EPUB
+			EPUB: scope.ZTOC_EPUB,
+			PASTE: scope.ZTOC_PASTE
 		};
 		return this.mods;
 	},
@@ -424,6 +425,207 @@ ZoteroTOC = {
 		}
 	},
 
+	// ---- Sommaire fourni par l'utilisateur ----
+
+	// Ouvre la fenêtre de collage et rend le texte saisi, ou null si annulé.
+	promptForTOC(window, titre) {
+		let params = {
+			titre: titre,
+			iaDisponible: this.provider() !== "off" && !this.aiReadyError(),
+			valide: false,
+			texte: "",
+			utiliserIA: false
+		};
+		try {
+			window.openDialog(this.rootURI + "paste.xhtml", "ztoc-paste",
+				"chrome,dialog,modal,centerscreen,resizable", params);
+		}
+		catch (e) {
+			log("fenêtre de collage : " + e);
+			return null;
+		}
+		if (!params.valide || !String(params.texte).trim()) return null;
+		return { texte: params.texte, utiliserIA: params.utiliserIA };
+	},
+
+	// Chaîne complète : coller un sommaire, le retrouver dans le document,
+	// puis l'écrire. Ne concerne que les PDF — un EPUB tient déjà sa structure
+	// de ses propres balises de titre.
+	async runPastedTOC(window) {
+		if (this._busy) {
+			toast("zotero-TOC", "Un traitement est déjà en cours.", "error");
+			return;
+		}
+		let items = window.ZoteroPane.getSelectedItems();
+		let cibles = await this.collectTargets(items);
+		let pdfs = cibles.filter(a => a.attachmentContentType === "application/pdf");
+		if (pdfs.length !== 1) {
+			toast("zotero-TOC",
+				pdfs.length ? "Sélectionnez un seul PDF : un sommaire collé vaut pour un document."
+					: "Aucun PDF dans la sélection.", "error");
+			return;
+		}
+		let att = pdfs[0];
+		let nom = att.getField("title") || att.attachmentFilename || "document";
+
+		let saisie = this.promptForTOC(window, nom);
+		if (!saisie) return;
+
+		this._busy = true;
+		let pw = null;
+		try {
+			pw = new Zotero.ProgressWindow({ closeOnClick: false });
+			pw.changeHeadline("zotero-TOC");
+			let progression = new pw.ItemProgress(
+				"chrome://zotero/skin/treeitem-attachment-pdf.png",
+				"Lecture du document…");
+			pw.show();
+
+			let res = await this.applyPastedTOC(att, saisie, window,
+				(m) => { try { progression.setText(m); } catch (e) { /* sans importance */ } });
+
+			try { progression.setProgress(100); progression.setText(res.message); }
+			catch (e) { /* sans importance */ }
+			try { pw.startCloseTimer(res.status === "ok" ? 5000 : 9000); }
+			catch (e) { /* sans importance */ }
+			if (res.status !== "ok") toast("zotero-TOC", res.message, "error");
+			log("sommaire collé | " + res.status + " | " + res.message);
+		}
+		catch (e) {
+			try { if (pw) pw.close(); } catch (e2) { /* sans importance */ }
+			log("runPastedTOC : " + e);
+			toast("zotero-TOC", String(e.message || e), "error");
+		}
+		finally {
+			this._busy = false;
+		}
+	},
+
+	async applyPastedTOC(item, saisie, window, avancement) {
+		let { PDF, EX, DT, AI, PASTE } = this.loadModules();
+		let name = item.getField("title") || item.attachmentFilename || "(sans titre)";
+
+		let path = await item.getFilePathAsync();
+		if (!path) return { status: "error", message: "fichier absent du disque" };
+
+		let bytes = await IOUtils.read(path);
+		let info = await PDF.inspect(bytes);
+		if (info.encrypted) return { status: "error", message: "PDF protégé (chiffré)" };
+
+		avancement("Extraction du texte…");
+		let pdfjs = await this.getPdfjs();
+		let doc = await EX.extractDocument(pdfjs, this.toWindowBytes(bytes), {});
+
+		avancement("Recherche des intitulés…");
+		let heads = DT._internals.findRunningHeads(doc.pages);
+		let census = DT._internals.styleCensus(doc.pages);
+		let r = PASTE.locate(saisie.texte, doc, heads, census.bodySize);
+
+		if (!r.entries.length) {
+			return { status: "error", message: "aucune entrée reconnue dans le texte collé" };
+		}
+
+		// Le modèle ne sert qu'aux intitulés restés introuvables, et il ne peut
+		// désigner que des lignes réellement présentes dans le document.
+		let viaIA = 0;
+		if (saisie.utiliserIA && r.unmatched.length && !this.aiReadyError()) {
+			avancement("Intitulés difficiles soumis au modèle…");
+			try {
+				viaIA = await this.completePastedWithAI(r, doc, heads, census, AI, PASTE);
+			}
+			catch (e) {
+				log("modèle (sommaire collé) : " + (e.message || e));
+			}
+		}
+
+		let headings = r.headings;
+		if (headings.length < 2) {
+			return {
+				status: "error",
+				message: "seulement " + headings.length + " intitulé(s) retrouvé(s) dans le document"
+			};
+		}
+
+		let resume = headings.length + " entrées sur " + r.entries.length
+			+ (r.offset !== null ? " — décalage de pagination : " + r.offset + " pages" : "")
+			+ (viaIA ? " — " + viaIA + " via le modèle" : "");
+
+		let apercu = headings.slice();
+		if (r.unmatched.length) {
+			log("intitulés non retrouvés : " + r.unmatched.join(" | "));
+		}
+		if (!saisie.sansConfirmation
+			&& !this.confirmHeadings(window, name + "\n" + resume, apercu, viaIA > 0)) {
+			return { status: "skipped", message: "abandonné" };
+		}
+
+		if (getPref("keepBackup", true)) {
+			try { await this.backup(path, item); }
+			catch (e) { log("sauvegarde : " + e); }
+		}
+
+		avancement("Écriture du sommaire…");
+		let out = await PDF.writeOutline(bytes, headings);
+		await IOUtils.write(path, out, { tmpPath: path + ".ztoc-tmp" });
+		await this.afterWrite(item);
+
+		return { status: "ok", message: resume };
+	},
+
+	// Soumet au modèle les intitulés introuvables, avec une courte liste de
+	// lignes plausibles. Complète `r.headings` sur place ; rend le nombre
+	// d'intitulés récupérés.
+	async completePastedWithAI(r, doc, heads, census, AI, PASTE) {
+		let restants = r.entries.filter(e =>
+			!r.headings.some(h => h.title === e.title));
+		if (!restants.length) return 0;
+
+		let index = r.index || PASTE.buildIndex(doc, heads);
+		// Numéroter les lignes une fois pour toutes : le modèle ne manipule que
+		// ces numéros, jamais du texte libre.
+		let numeros = new Map();
+		index.forEach((it, i) => numeros.set(it, i + 1));
+
+		let questions = [];
+		restants.slice(0, 25).forEach((e, qi) => {
+			let cands = PASTE.candidatesFor(e, index,
+				{ bodySize: census.bodySize, offset: r.offset });
+			if (!cands.length) return;
+			// Retrouver les objets d'index correspondants pour leur numéro.
+			let options = [];
+			for (let it of index) {
+				for (let c of cands.slice(0, 6)) {
+					if (it.pageIndex === c.pageIndex && it.text === c.text) {
+						options.push({ i: numeros.get(it), page: it.pageIndex, text: it.text.slice(0, 110) });
+						break;
+					}
+				}
+				if (options.length >= 6) break;
+			}
+			if (options.length) questions.push({ e: qi + 1, title: e.title, options: options, entry: e });
+		});
+		if (!questions.length) return 0;
+
+		let choix = await AI.matchTitles(this.aiConfig(), questions);
+		let ajoutes = 0;
+		for (let q of questions) {
+			let i = choix.get(q.e);
+			if (!i) continue;
+			let it = index[i - 1];
+			if (!it) continue;
+			r.headings.push({
+				title: q.entry.title, level: q.entry.level,
+				pageIndex: it.pageIndex, y: Math.round(it.top), score: 99
+			});
+			ajoutes++;
+		}
+		if (ajoutes) {
+			// Remettre l'ensemble dans l'ordre du document.
+			r.headings.sort((a, b) => (a.pageIndex - b.pageIndex) || (b.y - a.y));
+		}
+		return ajoutes;
+	},
+
 	// Copie de sauvegarde, rangée hors du dossier de stockage de Zotero pour ne
 	// pas troubler sa gestion des pièces jointes.
 	async backup(path, item) {
@@ -619,6 +821,14 @@ ZoteroTOC = {
 			popup.appendChild(doc.createXULElement("menuseparator"));
 			mk("Régénérer en remplaçant le sommaire existant", { overwrite: true, preview: true });
 			mk("Générer avec l'appui du modèle", { overwrite: false, preview: true, forceAI: true });
+			popup.appendChild(doc.createXULElement("menuseparator"));
+
+			let coller = doc.createXULElement("menuitem");
+			coller.setAttribute("label", "Coller un sommaire…");
+			coller.addEventListener("command", () => {
+				ZoteroTOC.runPastedTOC(window).catch(e => log("runPastedTOC : " + e));
+			});
+			popup.appendChild(coller);
 
 			menu.appendChild(popup);
 			itemmenu.appendChild(menu);
@@ -710,6 +920,33 @@ ZoteroTOC.runDiagnostic = async function (outPath) {
 				push("item", att.key + " — " + (att.attachmentFilename || "?"));
 				let res = await this.processAttachment(att, { overwrite: true, preview: false });
 				push("traitement", JSON.stringify(res));
+			}
+		}
+
+		// Diagnostic du collage de sommaire : le texte est pris dans une
+		// préférence, ce qui permet d'éprouver toute la chaîne sans la fenêtre.
+		let pasteKey = String(getPref("diagnosticPasteItem", "")).trim();
+		let pasteFile = String(getPref("diagnosticPasteFile", "")).trim();
+		if (pasteKey && pasteFile) {
+			let att = null;
+			for (let lib of Zotero.Libraries.getAll()) {
+				try {
+					let it = await Zotero.Items.getByLibraryAndKeyAsync(lib.libraryID, pasteKey);
+					if (it) { att = it; break; }
+				}
+				catch (e) { /* bibliothèque suivante */ }
+			}
+			if (!att) push("collage", "clé introuvable : " + pasteKey);
+			else {
+				if (att.isRegularItem && att.isRegularItem()) {
+					let kids = await Zotero.Items.getAsync(att.getAttachments());
+					att = kids.find(k => k.attachmentContentType === "application/pdf") || att;
+				}
+				let texte = await IOUtils.readUTF8(pasteFile);
+				let res = await this.applyPastedTOC(att,
+					{ texte: texte, utiliserIA: false, sansConfirmation: true },
+					null, (m) => push("étape", m));
+				push("collage", JSON.stringify(res));
 			}
 		}
 
