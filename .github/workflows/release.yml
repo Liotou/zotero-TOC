@@ -28,6 +28,11 @@ jobs:
             exit 1
           fi
           echo "VERSION=$MAN" >> "$GITHUB_ENV"
+          # La compatibilité doit venir du manifeste, jamais être recopiée ici :
+          # sinon updates.json annonce une borne périmée et Zotero refuse la
+          # mise à jour au moment même où elle devient nécessaire.
+          echo "ZMIN=$(node -p "require('./manifest.json').applications.zotero.strict_min_version")" >> "$GITHUB_ENV"
+          echo "ZMAX=$(node -p "require('./manifest.json').applications.zotero.strict_max_version")" >> "$GITHUB_ENV"
 
       - name: Fabriquer le XPI
         run: |
@@ -55,8 +60,8 @@ jobs:
                     "update_hash": "sha256:${SHA}",
                     "applications": {
                       "zotero": {
-                        "strict_min_version": "7.0",
-                        "strict_max_version": "9.*"
+                        "strict_min_version": "${ZMIN}",
+                        "strict_max_version": "${ZMAX}"
                       }
                     }
                   }
