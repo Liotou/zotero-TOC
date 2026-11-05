@@ -6,18 +6,19 @@
     <label><html:h2>1 · Appui d'un modèle</html:h2></label>
 
     <description style="max-width: 46em; opacity: 0.85;">
-      La détection des titres est d'abord typographique et fonctionne sans
-      modèle. Un modèle n'intervient qu'en renfort, sur les documents mal
-      structurés. Il ne rédige jamais les intitulés : il choisit parmi les
-      lignes réellement présentes dans le PDF.
+      Le plugin cherche d'abord la table des matières imprimée du document et
+      la confronte à sa mise en page. Quand les deux concordent, le résultat
+      est sûr et le modèle n'est pas sollicité. Sinon, le modèle arbitre : il
+      reçoit les lignes candidates, avec leur origine, et choisit celles qui
+      forment la vraie structure. Il ne rédige jamais d'intitulé.
     </description>
 
     <hbox align="center" style="margin-top: 8px;">
       <label value="Solliciter le modèle :" control="ztoc-aimode"/>
       <html:select id="ztoc-aimode" style="min-width: 26em;"
                    preference="extensions.zotero.ztoc.aiMode">
-        <html:option value="never">Jamais — détection typographique seule</html:option>
-        <html:option value="auto">En cas de doute seulement (recommandé)</html:option>
+        <html:option value="never">Jamais : détection typographique seule</html:option>
+        <html:option value="auto">Quand les sources ne se confirment pas (recommandé)</html:option>
         <html:option value="always">Toujours</html:option>
       </html:select>
     </hbox>
@@ -27,9 +28,9 @@
       <html:select id="ztoc-provider" style="min-width: 26em;"
                    preference="extensions.zotero.ztoc.provider">
         <html:option value="off">Aucun</html:option>
-        <html:option value="ollama">Ollama — modèle local, aucune clé, rien n'est envoyé</html:option>
-        <html:option value="cli">Claude Code en ligne de commande — abonnement local</html:option>
-        <html:option value="mistral">API Mistral (ou compatible OpenAI) — distant</html:option>
+        <html:option value="ollama">Ollama : modèle local, aucune clé, rien n'est envoyé</html:option>
+        <html:option value="cli">Claude Code en ligne de commande : abonnement local</html:option>
+        <html:option value="mistral">API Mistral (ou compatible OpenAI) : distant</html:option>
       </html:select>
     </hbox>
 
@@ -147,6 +148,11 @@
       clic droit → « zotero-TOC ». Les PDF qui possèdent déjà un sommaire sont
       laissés intacts, sauf si vous demandez explicitement de le remplacer.
       Ouvrez ensuite le PDF et affichez le volet « Sommaire » du lecteur.
+    </description>
+    <description style="max-width: 46em; margin-top: 6px;">
+      Si le résultat ne convient pas, « Coller ou corriger le sommaire… » ouvre
+      la table des matières trouvée dans le document, à corriger ou à
+      remplacer par la vôtre : chaque intitulé est alors retrouvé dans le texte.
     </description>
   </groupbox>
 

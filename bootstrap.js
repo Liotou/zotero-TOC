@@ -1,5 +1,5 @@
 /* eslint-disable no-undef */
-// zotero-TOC — génère le sommaire manquant d'un PDF et l'inscrit dans le fichier,
+// zotero-TOC : génère le sommaire manquant d'un PDF et l'inscrit dans le fichier,
 // pour que le volet « Sommaire » du lecteur Zotero devienne utilisable.
 //
 // Chaîne de traitement, pour un PDF donné :
@@ -22,6 +22,14 @@ function getPref(key, fallback) {
 
 function log(msg) {
 	Zotero.debug("[zotero-TOC] " + msg);
+}
+
+function toRoman(n) {
+	let table = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"],
+		[50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]];
+	let out = "";
+	for (let [v, r] of table) while (n >= v) { out += r; n -= v; }
+	return out;
 }
 
 function toast(title, body, type) {
@@ -89,7 +97,7 @@ ZoteroTOC = {
 		let scope = {};
 		let loader = Services.scriptloader;
 		for (let f of ["lib/pdf-lib.js", "lib/zip.js", "lib/epub.js",
-			"lib/extract.js", "lib/detect.js", "lib/toc-paste.js", "lib/ai.js"]) {
+			"lib/extract.js", "lib/detect.js", "lib/toc-paste.js", "lib/pipeline.js", "lib/ai.js"]) {
 			loader.loadSubScript(this.rootURI + f, scope);
 		}
 		this.mods = {
@@ -99,7 +107,8 @@ ZoteroTOC = {
 			AI: scope.ZTOC_AI,
 			ZIP: scope.ZTOC_ZIP,
 			EPUB: scope.ZTOC_EPUB,
-			PASTE: scope.ZTOC_PASTE
+			PASTE: scope.ZTOC_PASTE,
+			PIPE: scope.ZTOC_PIPELINE
 		};
 		return this.mods;
 	},
@@ -151,6 +160,37 @@ ZoteroTOC = {
 		this._pdfjsWindow = win;
 		this._pdfjs = mod;
 		return mod;
+	},
+
+	// Un seul processus de travail pdf.js pour tous les documents. pdf.js en
+	// crée sinon un par document, que la fermeture ne libère pas toujours dans
+	// Zotero : après quelques documents traités à la suite, pdf.js cessait de
+	// répondre (constaté au 4e puis au 9e document d'une série).
+	getPdfWorker(pdfjs) {
+		if (this._pdfWorker && !this._pdfWorker.destroyed) return this._pdfWorker;
+		try { this._pdfWorker = new pdfjs.PDFWorker({ name: "zotero-toc" }); }
+		catch (e) { log("PDFWorker : " + e); this._pdfWorker = null; }
+		return this._pdfWorker;
+	},
+
+	resetPdfWorker() {
+		try { if (this._pdfWorker) this._pdfWorker.destroy(); } catch (e) { /* sans importance */ }
+		this._pdfWorker = null;
+	},
+
+	// Extraction avec reprise : si pdf.js ne répond plus, son processus est
+	// recréé et le document retenté une fois.
+	async extractWithRetry(EX, bytes, opts) {
+		let pdfjs = await this.getPdfjs();
+		let essai = async () => EX.extractDocument(pdfjs, this.toWindowBytes(bytes),
+			Object.assign({}, opts, { worker: this.getPdfWorker(pdfjs) }));
+		try { return await essai(); }
+		catch (e) {
+			if (!/délai dépassé|ne répond plus/.test(String(e.message))) throw e;
+			log("pdf.js ne répond plus : processus recréé, nouvel essai");
+			this.resetPdfWorker();
+			return await essai();
+		}
 	},
 
 	// pdf.js vit dans le compartiment de la fenêtre : lui passer un tableau créé
@@ -215,6 +255,32 @@ ZoteroTOC = {
 		return null;
 	},
 
+	// Le modèle intervient dès que le résultat n'est pas confirmé par deux
+	// sources pleinement concordantes : table imprimée ET typographie d'accord
+	// sur au moins 95 % des entrées. Mesuré sur 28 ouvrages, ce seuil capte
+	// presque tout le gain d'un arbitrage systématique (70,9 % de F1 contre
+	// 71,2 %) avec un tiers d'appels en moins ; à 0,85, le gain retombait à
+	// 67,4 %.
+	shouldAskModel(result, mode) {
+		if (mode === "never" || this.provider() === "off" || this.aiReadyError()) return false;
+		if (mode === "always") return true;
+		let confirme = /^sommaire/.test(result.source)
+			&& result.stats && typeof result.stats.agree === "number" && result.stats.agree >= 0.95;
+		return !confirme;
+	},
+
+	describeSource(result) {
+		let src = {
+			"sommaire": "table des matières imprimée",
+			"sommaire+styles": "table des matières imprimée, approfondie par les styles",
+			"typographie": "mise en page (aucune table des matières exploitable)"
+		};
+		let base = String(result.source || "").replace(/\+modèle$/, "");
+		let txt = "Source : " + (src[base] || base);
+		if (/\+modèle$/.test(result.source || "")) txt += ", arbitrée par le modèle";
+		return txt;
+	},
+
 	// Quand solliciter le modèle : jamais, seulement en cas de doute, ou toujours.
 	aiMode() {
 		let m = String(getPref("aiMode", "auto")).trim();
@@ -226,7 +292,7 @@ ZoteroTOC = {
 	// Rend { status, message, count }. `status` ∈ ok | skipped | error.
 	async processAttachment(item, opts) {
 		opts = opts || {};
-		let { PDF, EX, DT, AI } = this.loadModules();
+		let { PDF, EX, DT, AI, PIPE } = this.loadModules();
 		let name = item.getField("title") || item.attachmentFilename || "(sans titre)";
 
 		if (!item.isFileAttachment()) {
@@ -261,60 +327,24 @@ ZoteroTOC = {
 			return { status: "skipped", message: "possède déjà un sommaire", name };
 		}
 
-		// Extraction du texte et de sa typographie.
-		let pdfjs = await this.getPdfjs();
-		let doc;
-		try {
-			doc = await EX.extractDocument(pdfjs, this.toWindowBytes(bytes), {
-				maxPages: parseInt(getPref("maxPages", 0), 10) || 0
-			});
-		}
+		let built;
+		try { built = await this.buildOutline(bytes, name, opts); }
 		catch (e) {
 			return { status: "error", message: "extraction du texte : " + (e.message || e), name };
 		}
-
-		let result = DT.detect(doc);
-		let conf = DT.confidence(result);
-		let usedAI = false;
-
-		let mode = opts.forceAI ? "always" : this.aiMode();
-		let wantAI = (mode === "always")
-			|| (mode === "auto" && conf.level !== "bonne");
-		if (wantAI && this.provider() !== "off" && !this.aiReadyError()) {
-			try {
-				let refined = await AI.refine(this.aiConfig(), result.aiCandidates || [], {
-					title: name,
-					pages: doc.pages.length,
-					bodySize: result.stats.bodySize
-				});
-				// On ne remplace la détection que si le modèle a produit mieux.
-				if (refined.length >= 3 && refined.length >= result.headings.length * 0.5) {
-					result = { headings: refined, stats: result.stats };
-					usedAI = true;
-				}
-				else if (refined.length && !result.headings.length) {
-					result = { headings: refined, stats: result.stats };
-					usedAI = true;
-				}
-			}
-			catch (e) {
-				log("modèle : " + (e.message || e));
-				// Échec du modèle : on garde la détection typographique.
-			}
-		}
+		let result = built.result, usedAI = built.usedAI;
 
 		let headings = result.headings || [];
 		if (headings.length < 2) {
 			return {
 				status: "skipped",
-				message: "aucune structure de titres identifiable"
-					+ (conf.reason ? " (" + conf.reason + ")" : ""),
+				message: "aucune structure de titres identifiable",
 				name
 			};
 		}
 
 		if (opts.preview) {
-			let go = this.confirmHeadings(opts.window, name, headings, usedAI);
+			let go = this.confirmHeadings(opts.window, name + "\n" + this.describeSource(result), headings, usedAI);
 			if (!go) return { status: "skipped", message: "abandonné", name };
 		}
 
@@ -345,6 +375,72 @@ ZoteroTOC = {
 			message: headings.length + " entrées" + (usedAI ? " (avec appui du modèle)" : ""),
 			name
 		};
+	},
+
+	// Cœur du traitement d'un PDF : extraction, choix de la source, arbitrage
+	// éventuel par le modèle. Ne touche à aucun fichier : il sert aussi bien
+	// au menu qu'au diagnostic, qui travaille sur des copies.
+	async buildOutline(bytes, name, opts) {
+		opts = opts || {};
+		let { EX, DT, AI, PIPE } = this.loadModules();
+		// Extraction du texte et de sa typographie.
+		let doc;
+		try {
+			doc = await this.extractWithRetry(EX, bytes, {
+				maxPages: parseInt(getPref("maxPages", 0), 10) || 0,
+				onProgress: opts.onProgress
+			});
+		}
+		catch (e) {
+			throw new Error(e.message || e);
+		}
+
+		// Choix de la meilleure source : table des matières imprimée retrouvée
+		// dans le texte, approfondie par les styles, ou détection typographique.
+		let result = PIPE.run(doc, {});
+		let usedAI = false;
+
+		if (this.shouldAskModel(result, opts.forceAI ? "always" : this.aiMode())) {
+			try {
+				let census = DT._internals.styleCensus(doc.pages);
+				let cands = PIPE.aiCandidates(result);
+				let meta = {
+					title: name, pages: doc.pages.length, bodySize: census.bodySize,
+					hasToc: !!(result.stats && result.stats.tocPages)
+				};
+				let base = result.headings.length;
+				let contrat = opts.aiContract || String(getPref("aiContract", "edit"));
+				if (contrat === "select") {
+					let chosen = await AI.selectOutline(this.aiConfig(), cands, meta);
+					// Garde-fou : une réponse squelettique ne remplace pas un
+					// sommaire déterministe fourni. Le modèle affine, il ne vide pas.
+					if (chosen.length >= 3 && (base < 3 || chosen.length >= base * 0.3)) {
+						result.notes.push("modèle : " + chosen.length + " entrées retenues sur "
+							+ cands.length + " candidates (sans modèle : " + base + ")");
+						result = Object.assign({}, result, { headings: chosen, source: result.source + "+modèle" });
+						usedAI = true;
+					}
+					else result.notes.push("modèle : réponse écartée (" + chosen.length + " entrées)");
+				}
+				else {
+					// Correction du sommaire proposé : retraits, ajouts, niveaux.
+					let ed = await AI.editOutline(this.aiConfig(), cands, meta);
+					result.notes.push("modèle : " + ed.removed + " retirée(s), " + ed.added
+						+ " ajoutée(s), " + ed.relevelled + " niveau(x) corrigé(s)");
+					if (ed.headings.length >= 3 && (ed.removed || ed.added || ed.relevelled)) {
+						result = Object.assign({}, result, { headings: ed.headings, source: result.source + "+modèle" });
+						usedAI = true;
+					}
+				}
+			}
+			catch (e) {
+				log("modèle : " + (e.message || e));
+				result.notes.push("modèle indisponible : " + String(e.message || e).slice(0, 120));
+			}
+		}
+		log(name + " | source " + result.source + " | " + result.notes.join(" ; "));
+
+		return { result: result, usedAI: usedAI, doc: doc };
 	},
 
 	// Un EPUB porte ses titres explicitement (<h1>…<h6>) : aucune heuristique
@@ -454,9 +550,11 @@ ZoteroTOC = {
 	// ---- Sommaire fourni par l'utilisateur ----
 
 	// Ouvre la fenêtre de collage et rend le texte saisi, ou null si annulé.
-	promptForTOC(window, titre) {
+	promptForTOC(window, titre, prefill, prefillNote) {
 		let params = {
 			titre: titre,
+			prefill: prefill || "",
+			note: prefillNote || "",
 			iaDisponible: this.provider() !== "off" && !this.aiReadyError(),
 			valide: false,
 			texte: "",
@@ -488,7 +586,7 @@ ZoteroTOC = {
 	},
 
 	// Chaîne complète : coller un sommaire, le retrouver dans le document,
-	// puis l'écrire. Ne concerne que les PDF — un EPUB tient déjà sa structure
+	// puis l'écrire. Ne concerne que les PDF : un EPUB tient déjà sa structure
 	// de ses propres balises de titre.
 	async runPastedTOC(window) {
 		if (this._busy) {
@@ -507,27 +605,40 @@ ZoteroTOC = {
 		let att = pdfs[0];
 		let nom = att.getField("title") || att.attachmentFilename || "document";
 
-		let saisie = this.promptForTOC(window, nom);
-		if (!saisie) return;
-
 		this._busy = true;
-		let pw = null;
+		let pw = null, progression = null;
+		let avancement = (m) => { try { progression.setText(m); } catch (e) { /* sans importance */ } };
 		try {
 			pw = new Zotero.ProgressWindow({ closeOnClick: false });
 			pw.changeHeadline("zotero-TOC");
-			let progression = new pw.ItemProgress(
-				"chrome://zotero/skin/treeitem-attachment-pdf.png",
-				"Lecture du document…");
+			progression = new pw.ItemProgress(
+				"chrome://zotero/skin/treeitem-attachment-pdf.png", "Lecture du document…");
 			pw.show();
 
-			let res = await this.applyPastedTOC(att, saisie, window,
-				(m) => { try { progression.setText(m); } catch (e) { /* sans importance */ } });
+			// Le document est lu AVANT d'ouvrir la fenêtre : on peut ainsi lui
+			// proposer la table des matières qu'il contient déjà, à vérifier ou
+			// corriger plutôt qu'à recopier.
+			let ctx = await this.preparePaste(att, avancement);
+			try { pw.close(); } catch (e) { /* sans importance */ }
+			pw = null;
+			if (ctx.error) { toast("zotero-TOC", ctx.error, "error"); return; }
+
+			let saisie = this.promptForTOC(window, nom, ctx.prefill, ctx.prefillNote);
+			if (!saisie) return;
+
+			pw = new Zotero.ProgressWindow({ closeOnClick: false });
+			pw.changeHeadline("zotero-TOC");
+			progression = new pw.ItemProgress(
+				"chrome://zotero/skin/treeitem-attachment-pdf.png", "Recherche des intitulés…");
+			pw.show();
+
+			let res = await this.applyPastedTOC(att, saisie, window, avancement, ctx);
 
 			try { progression.setProgress(100); progression.setText(res.message); }
 			catch (e) { /* sans importance */ }
 			try { pw.startCloseTimer(res.status === "ok" ? 5000 : 9000); }
 			catch (e) { /* sans importance */ }
-			if (res.status !== "ok") toast("zotero-TOC", res.message, "error");
+			if (res.status === "error") toast("zotero-TOC", res.message, "error");
 			log("sommaire collé | " + res.status + " | " + res.message);
 		}
 		catch (e) {
@@ -540,42 +651,66 @@ ZoteroTOC = {
 		}
 	},
 
-	async applyPastedTOC(item, saisie, window, avancement) {
-		let { PDF, EX, DT, AI, PASTE } = this.loadModules();
-		let name = item.getField("title") || item.attachmentFilename || "(sans titre)";
-
+	// Lit le document et y cherche sa propre table des matières, pour
+	// pré-remplir la fenêtre de collage.
+	async preparePaste(item, avancement) {
+		let { PDF, EX, DT, PIPE } = this.loadModules();
 		let path = await item.getFilePathAsync();
-		if (!path) return { status: "error", message: "fichier absent du disque" };
-
+		if (!path) return { error: "fichier absent du disque" };
 		let bytes = await IOUtils.read(path);
 		let info = await PDF.inspect(bytes);
-		if (info.encrypted) return { status: "error", message: "PDF protégé (chiffré)" };
+		if (info.encrypted) return { error: "PDF protégé (chiffré)" };
 
 		avancement("Extraction du texte…");
-		let pdfjs = await this.getPdfjs();
-		let doc = await EX.extractDocument(pdfjs, this.toWindowBytes(bytes), {});
-
-		avancement("Recherche des intitulés…");
+		let doc = await this.extractWithRetry(EX, bytes, {});
 		let heads = DT._internals.findRunningHeads(doc.pages);
 		let census = DT._internals.styleCensus(doc.pages);
-		let r = PASTE.locate(saisie.texte, doc, heads, census.bodySize);
+
+		avancement("Recherche de la table des matières…");
+		let toc = null;
+		try { toc = PIPE.findPrintedToc(doc, heads); } catch (e) { log("préremplissage : " + e); }
+		let prefill = "", note = "";
+		if (toc && toc.entries.length) {
+			prefill = toc.entries.map(e => "    ".repeat(Math.max(0, e.level - 1)) + e.title
+				+ (e.printed !== null ? "  " + (e.roman ? toRoman(e.printed) : e.printed) : "")).join("\n");
+			note = "Table des matières repérée page " + toc.pages.map(x => x + 1).join(", ")
+				+ " du document (" + toc.entries.length + " entrées). Vérifiez-la, corrigez-la ou remplacez-la.";
+		}
+		else {
+			note = "Aucune table des matières repérée dans le document : collez celle de l'ouvrage.";
+		}
+		return { path, bytes, doc, heads, census, tocPages: toc ? toc.pages : [], prefill, prefillNote: note };
+	},
+
+	async applyPastedTOC(item, saisie, window, avancement, ctx) {
+		let { PDF, DT, AI, PASTE } = this.loadModules();
+		let name = item.getField("title") || item.attachmentFilename || "(sans titre)";
+		if (!ctx) {
+			ctx = await this.preparePaste(item, avancement);
+			if (ctx.error) return { status: "error", message: ctx.error };
+		}
+		let { path, bytes, doc, heads, census } = ctx;
+
+		avancement("Recherche des intitulés…");
+		// Les pages de sommaire et d'index contiennent tous les intitulés : on
+		// ne les fouille pas, sans quoi chaque entrée s'y retrouverait elle-même.
+		let exclude = DT._internals.findTocPages(doc.pages);
+		for (let pi of (ctx.tocPages || [])) exclude.add(pi);
+		let r = PASTE.locate(saisie.texte, doc, heads, census.bodySize, { excludePages: exclude });
 
 		if (!r.entries.length) {
 			return { status: "error", message: "aucune entrée reconnue dans le texte collé" };
 		}
 
-		// Le modèle ne sert qu'aux intitulés restés introuvables, et il ne peut
-		// désigner que des lignes réellement présentes dans le document.
+		// Ordre de résolution : le texte d'abord ; le modèle pour les intitulés
+		// restés introuvables ; leur numéro de page pour ce qui reste encore.
 		let viaIA = 0;
 		if (saisie.utiliserIA && r.unmatched.length && !this.aiReadyError()) {
 			avancement("Intitulés difficiles soumis au modèle…");
-			try {
-				viaIA = await this.completePastedWithAI(r, doc, heads, census, AI, PASTE);
-			}
-			catch (e) {
-				log("modèle (sommaire collé) : " + (e.message || e));
-			}
+			try { viaIA = await this.completePastedWithAI(r, doc, heads, census, AI, PASTE); }
+			catch (e) { log("modèle (sommaire collé) : " + (e.message || e)); }
 		}
+		PASTE.placeRemaining(r, doc);
 
 		let headings = r.headings;
 		if (headings.length < 2) {
@@ -585,16 +720,21 @@ ZoteroTOC = {
 			};
 		}
 
-		let resume = headings.length + " entrées sur " + r.entries.length
-			+ (r.offset !== null ? " — décalage de pagination : " + r.offset + " pages" : "")
-			+ (viaIA ? " — " + viaIA + " via le modèle" : "");
-
-		let apercu = headings.slice();
+		let morceaux = [headings.length + " entrées sur " + r.entries.length];
+		if (r.offset !== null) morceaux.push("décalage de pagination : " + r.offset + " pages");
+		if (viaIA) morceaux.push(viaIA + " retrouvées par le modèle");
+		if (r.placed) morceaux.push(r.placed + " placées d'après leur numéro de page");
+		let resume = morceaux.join(" ; ");
+		let detail = resume;
 		if (r.unmatched.length) {
+			detail += "\nIntrouvables (" + r.unmatched.length + ") : "
+				+ r.unmatched.slice(0, 5).map(t => "« " + t.slice(0, 50) + " »").join(", ")
+				+ (r.unmatched.length > 5 ? "…" : "");
 			log("intitulés non retrouvés : " + r.unmatched.join(" | "));
 		}
+
 		if (!saisie.sansConfirmation
-			&& !this.confirmHeadings(window, name + "\n" + resume, apercu, viaIA > 0)) {
+			&& !this.confirmHeadings(window, name + "\n" + detail, headings.slice(), viaIA > 0)) {
 			return { status: "skipped", message: "abandonné" };
 		}
 
@@ -757,9 +897,9 @@ ZoteroTOC = {
 				catch (e) {
 					res = { status: "error", message: String(e.message || e), name: "?" };
 				}
-				if (res.status === "ok") { ok++; details.push("✓ " + res.name + " — " + res.message); }
-				else if (res.status === "skipped") { skipped++; details.push("– " + res.name + " — " + res.message); }
-				else { failed++; details.push("✗ " + res.name + " — " + res.message); }
+				if (res.status === "ok") { ok++; details.push("✓ " + res.name + " : " + res.message); }
+				else if (res.status === "skipped") { skipped++; details.push("- " + res.name + " : " + res.message); }
+				else { failed++; details.push("✗ " + res.name + " : " + res.message); }
 				log(res.status + " | " + res.name + " | " + res.message);
 			}
 
@@ -863,7 +1003,7 @@ ZoteroTOC = {
 			popup.appendChild(doc.createXULElement("menuseparator"));
 
 			let coller = doc.createXULElement("menuitem");
-			coller.setAttribute("label", "Coller un sommaire…");
+			coller.setAttribute("label", "Coller ou corriger le sommaire…");
 			coller.addEventListener("command", () => {
 				ZoteroTOC.runPastedTOC(window).catch(e => log("runPastedTOC : " + e));
 			});
@@ -931,7 +1071,15 @@ async function startup({ id, version, rootURI }) {
 
 ZoteroTOC.runDiagnostic = async function (outPath) {
 	let report = { etapes: [], erreurs: [] };
-	let push = (k, v) => { report.etapes.push(k + " : " + v); log("diagnostic " + k + " = " + v); };
+	// Le rapport est réécrit à chaque étape : si le traitement se fige, le
+	// dernier enregistrement désigne l'étape qui bloque.
+	let ecriture = Promise.resolve();
+	let push = (k, v) => {
+		report.etapes.push(new Date().toTimeString().slice(0, 8) + " " + k + " : " + v);
+		log("diagnostic " + k + " = " + v);
+		let instantane = JSON.stringify(report, null, 2);
+		ecriture = ecriture.then(() => IOUtils.writeUTF8(outPath + ".partiel", instantane)).catch(() => {});
+	};
 	try {
 		let mods = this.loadModules();
 		push("modules", Object.keys(mods).filter(k => mods[k]).join(","));
@@ -957,7 +1105,7 @@ ZoteroTOC.runDiagnostic = async function (outPath) {
 					let kids = await Zotero.Items.getAsync(att.getAttachments());
 					att = kids.find(k => k.attachmentContentType === "application/pdf") || att;
 				}
-				push("item", att.key + " — " + (att.attachmentFilename || "?"));
+				push("item", att.key + " : " + (att.attachmentFilename || "?"));
 				let res = await this.processAttachment(att, { overwrite: true, preview: false });
 				push("traitement", JSON.stringify(res));
 			}
@@ -1026,29 +1174,44 @@ ZoteroTOC.runDiagnostic = async function (outPath) {
 			}
 		}
 
-		let src = String(getPref("diagnosticPdf", "")).trim();
-		if (src) {
+		// Diagnostic sur des copies : chemins séparés par « | ». Déroule la
+		// chaîne réelle (modèle compris, s'il est configuré) et écrit le
+		// résultat dans une copie « .ztoc-diagnostic.pdf », jamais dans la
+		// bibliothèque.
+		let srcs = String(getPref("diagnosticPdf", "")).split("|").map(x => x.trim()).filter(Boolean);
+		for (let src of srcs) {
+			// Un document en échec ne doit pas interrompre la série.
+			try {
+			let t0 = Date.now();
 			let bytes = await IOUtils.read(src);
-			push("lecture", bytes.length + " octets");
-			let info = await mods.PDF.inspect(bytes);
-			push("inspect", JSON.stringify(info));
-			let doc = await mods.EX.extractDocument(pdfjs, this.toWindowBytes(bytes), {});
-			push("extraction", doc.pages.length + " pages, "
-				+ doc.pages.reduce((a, p) => a + p.lines.length, 0) + " lignes");
-			let r = mods.DT.detect(doc);
-			push("detection", r.headings.length + " titres | "
-				+ JSON.stringify(r.headings.slice(0, 5).map(h => h.title.slice(0, 40))));
+			let nom = src.split("/").pop();
+			push("début", nom + " (" + bytes.length + " octets)");
+			let built = await this.buildOutline(bytes, nom, {
+				forceAI: !!getPref("diagnosticForceAI", false),
+				aiContract: String(getPref("diagnosticAIContract", "")) || undefined,
+				onProgress: (i, n) => { if (i % 50 === 0 || i === n) push("extraction", i + "/" + n + " pages"); }
+			});
+			push("chaîne", "source " + built.result.source + (built.usedAI ? " (modèle sollicité)" : ""));
+			let r = built.result;
+			push("document", nom + " | " + built.doc.pages.length + " pages | source " + r.source
+				+ " | " + r.headings.length + " entrées | " + Math.round((Date.now() - t0) / 1000) + " s");
+			push("notes", r.notes.join(" ; "));
+			push("début", JSON.stringify(r.headings.slice(0, 8).map(h =>
+				"N" + h.level + " p" + (h.pageIndex + 1) + " " + h.title.slice(0, 50))));
 			if (r.headings.length >= 2) {
 				let out = await mods.PDF.writeOutline(bytes, r.headings);
-				push("ecriture", out.length + " octets (source " + bytes.length + ")");
 				let tmp = src.replace(/\.pdf$/i, "") + ".ztoc-diagnostic.pdf";
 				await IOUtils.write(tmp, out);
 				push("fichier", tmp);
 			}
+			}
+			catch (e) {
+				push("ÉCHEC", src.split("/").pop() + " : " + String((e && e.message) || e));
+			}
 		}
 	}
 	catch (e) {
-		report.erreurs.push(String((e && e.stack) || e));
+		report.erreurs.push(String((e && e.message) || e) + " | " + String((e && e.stack) || ""));
 		log("diagnostic ERREUR " + e);
 	}
 	try {
@@ -1069,6 +1232,7 @@ function onMainWindowUnload({ window }) {
 function shutdown() {
 	if (ZoteroTOC) {
 		ZoteroTOC.removeFromAllWindows();
+		ZoteroTOC.resetPdfWorker();
 		ZoteroTOC.unregisterChrome();
 	}
 	try { delete Zotero.ZoteroTOC; } catch (e) { /* ignore */ }

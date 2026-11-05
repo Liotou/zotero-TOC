@@ -1,5 +1,5 @@
 /* eslint-disable no-undef */
-// zotero-TOC — fenêtre de collage du sommaire.
+// zotero-TOC : fenêtre de collage du sommaire.
 // Le résultat est déposé dans l'objet passé en argument par l'appelant.
 
 (function () {
@@ -25,7 +25,14 @@
 		let zone = document.getElementById("ztoc-paste-area");
 		let ia = document.getElementById("ztoc-paste-ai");
 
-		if (a.titre) document.title = "zotero-TOC — " + a.titre;
+		if (a.titre) document.title = "zotero-TOC : " + a.titre;
+		let note = document.getElementById("ztoc-paste-note");
+		if (note) note.textContent = a.note || "Collez le sommaire du document.";
+		// Pré-remplissage : la table des matières que le document contient déjà.
+		if (a.prefill) zone.value = a.prefill;
+		majCompte();
+		let vider = document.getElementById("ztoc-paste-clear");
+		if (vider) vider.addEventListener("command", () => { zone.value = ""; majCompte(); zone.focus(); });
 		if (ia) {
 			// La case n'a de sens que si un fournisseur est configuré. On passe
 			// par les PROPRIÉTÉS et non les attributs : sur une case XUL,

@@ -1,3 +1,4 @@
 *.xpi
 build/
 .DS_Store
+tools/bench/data/

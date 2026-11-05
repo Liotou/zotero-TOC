@@ -1,5 +1,5 @@
 # Publie une version dès qu'une étiquette « vX.Y.Z » est poussée :
-# fabrique le XPI, crée la release, puis met à jour updates.json sur main —
+# fabrique le XPI, crée la release, puis met à jour updates.json sur main :
 # c'est ce fichier que Zotero interroge pour la mise à jour automatique.
 name: Publier une version
 

@@ -2,7 +2,7 @@
 
 Extension Zotero (7 à 10) qui **génère le sommaire manquant d'un PDF ou d'un EPUB et l'inscrit dans le fichier**, afin que le volet « Sommaire » du lecteur Zotero devienne utilisable.
 
-Plus de la moitié des PDF d'une bibliothèque de recherche n'ont aucun signet : le volet reste vide et l'on navigue à la molette. zotero-TOC reconstitue la structure à partir de la mise en page, puis l'écrit dans le PDF lui-même — le sommaire reste donc valable hors de Zotero, dans n'importe quel lecteur.
+Plus de la moitié des PDF d'une bibliothèque de recherche n'ont aucun signet : le volet reste vide et l'on navigue à la molette. zotero-TOC reconstitue la structure à partir de la mise en page, puis l'écrit dans le PDF lui-même : le sommaire reste donc valable hors de Zotero, dans n'importe quel lecteur.
 
 ## Installation
 
@@ -19,65 +19,64 @@ Sélectionnez un ou plusieurs documents dans votre bibliothèque, puis **clic dr
 | Entrée | Effet |
 |---|---|
 | **Générer le sommaire** | Traite la sélection sans rien demander. |
-| **Générer le sommaire (avec aperçu)…** | Affiche les titres détectés et demande confirmation avant d'écrire. |
+| **Générer le sommaire (avec aperçu)…** | Affiche la source retenue et les entrées, puis demande confirmation avant d'écrire. |
 | **Régénérer en remplaçant le sommaire existant** | Le seul moyen d'écraser un sommaire déjà présent. |
-| **Générer avec l'appui du modèle** | Force le recours au modèle configuré, même si la détection semblait sûre. |
-| **Coller un sommaire…** | Vous fournissez le sommaire, le plugin le retrouve dans le document. Voir ci-dessous. |
+| **Générer avec l'appui du modèle** | Fait arbitrer le modèle même quand les sources concordent. |
+| **Coller ou corriger le sommaire…** | Ouvre une fenêtre pré-remplie avec la table des matières trouvée dans le document, à vérifier, corriger ou remplacer. Voir plus bas. |
 
 Ouvrez ensuite le document et affichez le volet « Sommaire » du lecteur.
 
 Un document qui possède déjà un sommaire n'est **jamais** modifié, sauf demande explicite : le sommaire d'origine de l'éditeur est presque toujours meilleur qu'une détection automatique.
 
-## Comment les titres sont détectés
+## Comment le sommaire est construit
 
-La détection est d'abord **typographique**, et fonctionne sans aucun modèle ni connexion :
+La version 1 appliquait la même détection typographique à tous les documents. Sur un article, cela fonctionne. Sur un ouvrage, elle produisait des sommaires de plusieurs centaines d'entrées où se mêlaient exercices numérotés, formules, notes de fin et titres courants. La version 2 procède comme un lecteur humain : elle **commence par chercher la table des matières que le document contient déjà**.
 
-1. **Découpage en colonnes.** Les gouttières verticales sont repérées afin de ne jamais fusionner deux colonnes en une seule ligne. C'est l'étape déterminante sur les revues scientifiques : sans elle, « 1 Introduction » se retrouve collé au corps du texte voisin et devient indétectable.
-2. **Profil du document.** Le style le plus employé, en nombre de caractères, définit le corps de texte. Tout ce qui s'en écarte devient candidat.
-3. **Faisceau d'indices.** Taille relative, police distincte, numérotation (`3.2 Méthode`), lexique de sections usuelles, isolement vertical, longueur de la ligne.
-4. **Filtres.** Sont écartés : titres courants (y compris ceux dont le folio est en chiffres romains), pages de table des matières et d'index imprimées, intitulés qui se répètent à l'identique, légendes de figures, mentions d'éditeur et encarts juridiques.
-5. **Hiérarchie.** Le niveau vient de la numérotation lorsqu'elle existe, sinon d'un regroupement des tailles de police en quatre paliers au maximum.
+1. **Table des matières imprimée.** Le plugin repère la ou les pages de sommaire (au début, ou à la fin comme dans beaucoup d'ouvrages français), en écartant les index, les listes de figures et de tableaux. Il en lit les entrées avec leur retrait, qui donne la hiérarchie, et leur numéro de page. Les colonnes sont recollées ligne à ligne : sur une page de sommaire, les numéros alignés à droite forment sinon une colonne séparée de leurs intitulés.
+2. **Retrouver chaque entrée dans le texte.** Une entrée n'est pas placée d'après son numéro imprimé, qui ne correspond pas aux pages du lecteur, mais **retrouvée dans le corps du document**. Les titres courants, qui répètent l'intitulé du chapitre en haut de chaque page, sont écartés ; le décalage entre pagination imprimée et pages du lecteur est estimé, puis sert d'indice ; l'ordre de la table est imposé globalement. Une entrée introuvable dans le texte est placée en tête de la page que lui assigne ce décalage.
+3. **Approfondir par les styles.** Une table imprimée ne liste souvent que les chapitres. Mais chaque entrée retrouvée révèle la police et la taille d'un vrai titre dans *ce* document. Parmi les titres détectés par la mise en page, seuls ceux qui portent l'un de ces styles sont ajoutés, au niveau que la table lui associe. Exercices, formules et notes, composés dans le style du corps, restent dehors.
+4. **Confronter à la mise en page.** La table imprimée peut avoir été mal lue (ouvrage collectif, mise en page complexe). Si la détection typographique retrouve d'elle-même la plupart de ses entrées, les deux sources se confirment. Sinon, elles divergent, et c'est la mise en page qui l'emporte tant qu'elle reste plausible.
+5. **À défaut, la mise en page seule.** Sans table des matières exploitable, la détection typographique prend le relais : découpage en colonnes, profil du corps de texte, faisceau d'indices (taille, police, numérotation, isolement), filtres des titres courants, légendes, encarts d'éditeur. Sur un ouvrage, un sommaire qui dépasse une entrée par page est élagué de son niveau le plus profond.
+6. **Arbitrage par le modèle**, s'il est configuré : voir plus bas.
 
-Les destinations pointent sur la **référence d'objet de la page**, c'est-à-dire la page telle que le lecteur la numérote. Les numéros de page imprimés ne sont jamais utilisés pour naviguer : dans un ouvrage dont la pagination démarre après les pages liminaires, un chapitre annoncé « page 1 » au sommaire imprimé est bien atteint à la page 20 du lecteur.
+Les destinations pointent sur la **référence d'objet de la page**, c'est-à-dire la page telle que le lecteur la numérote. Les numéros de page imprimés ne sont jamais utilisés pour naviguer.
 
 ### Ce que cela donne
 
-Mesuré sur 70 documents d'une bibliothèque réelle possédant un vrai sommaire d'éditeur, servant de référence :
+Mesuré sur une bibliothèque réelle, en prenant pour référence les documents qui possèdent un vrai sommaire d'éditeur (28 ouvrages, 80 articles), et en écartant ceux dont le sommaire avait été écrit par le plugin lui-même :
 
-| | |
-|---|---|
-| Précision moyenne | **79 %** |
-| Rappel moyen | **78 %** |
-| F1 médian | **86 %** |
-| Documents au-dessus de 70 % de F1 | **53 / 70** |
+| Ouvrages (28) | Version 1.2 | Version 2.0, sans modèle |
+|---|---|---|
+| Précision | 54,0 % | **65,5 %** |
+| Rappel | 70,6 % | 66,8 % |
+| F1 médian | 80,0 % | **82,9 %** |
+| F1 moyen | 58,1 % | **63,2 %** |
 
-Ces chiffres sont plutôt pessimistes : une partie des sommaires de référence sont eux-mêmes médiocres (numérisations dont les entrées sont « p. 69 », « image 3 », ou des exports PowerPoint intitulés « Slide 12 : … »), et comptent comme des échecs alors que la détection est correcte.
+Les gains se concentrent là où la version 1 s'effondrait : un manuel de méthodes de 643 pages passe de 2 à 82 %, un ouvrage de gestion des risques de 48 à 94 %, un rapport de 52 à 85 %. Sur les articles (175), rien ne change (F1 médian 81 %) : un article n'a presque jamais de table des matières imprimée, et la détection typographique y reste la bonne méthode.
 
-## Coller un sommaire
+Avec l'arbitrage par un modèle (contrat de correction, déclenché quand table et mise en page ne concordent pas à 95 %), le F1 moyen des ouvrages passe à **70,9 %** avec Claude. Avec Mistral, le gain mesuré est plus modeste (de 76 à 79 % sur un échantillon de huit ouvrages difficiles) : le choix du modèle compte.
 
-Quand la détection automatique déçoit — ouvrage numérisé, mise en page inhabituelle, titres sans marque typographique —, le plus sûr reste de fournir le sommaire soi-même : **clic droit → zotero-TOC → Coller un sommaire…**
+Ces chiffres sont plutôt pessimistes : la référence est le sommaire d'éditeur, souvent plus détaillé que la table imprimée, et parfois médiocre lui-même (entrées « p. 69 », « Slide 12 », « Halftitle »).
 
-Recopiez-le de la page « Table des matières » du document, du site de l'éditeur, du dos de l'ouvrage. Le plugin ne se contente pas de l'enregistrer : il **retrouve chaque intitulé dans le texte** et pointe la destination sur son début réel.
+## Coller ou corriger le sommaire
 
-Deux difficultés sont traitées explicitement, et ce sont elles qui font tout l'intérêt de la fonction :
+Quand le résultat automatique déçoit (ouvrage numérisé, table des matières mal composée, mise en page inhabituelle), le plus sûr reste de fournir le sommaire soi-même : **clic droit → zotero-TOC → Coller ou corriger le sommaire…**
 
-**Les titres se répètent en tête de page.** Un titre de chapitre figure souvent en haut de chacune de ses pages. Chercher naïvement le texte renverrait une de ces répétitions. Les titres courants sont donc repérés et fortement pénalisés, la taille de police et la position dans la page départagent le reste, et l'ordre du sommaire est imposé globalement : les destinations doivent former une suite de pages croissantes, ce qui élimine d'un coup les occurrences isolées.
+La fenêtre s'ouvre **déjà remplie** avec la table des matières que le plugin a trouvée dans le document, reconstituée avec ses retraits et ses numéros de page. Il suffit souvent de la relire et de corriger une ligne. Si rien n'a été trouvé, ou si la table imprimée est inexploitable, collez celle de l'ouvrage, recopiée du site de l'éditeur ou d'une notice de bibliothèque.
 
-**Les numéros de page imprimés ne sont pas ceux du lecteur.** Un ouvrage paginé après ses pages liminaires les décale d'une vingtaine de pages. Ce décalage est **estimé automatiquement** sur les intitulés les plus sûrs, puis sert d'indice pour les autres. Les numéros collés ne servent jamais de destination — seulement de faisceau de présomptions.
+Le texte accepté est souple : une ligne par entrée ; la hiérarchie se lit au **retrait** (espaces ou tabulations), aux **puces**, aux **titres Markdown** (`#`, `##`) ou à la **numérotation** (`1`, `1.1`, `1.1.1`) ; les « Partie » coiffent automatiquement les chapitres qui les suivent. Les numéros de page sont reconnus après des points de conduite, une tabulation, une barre (`Titre / 39`) ou sur la ligne suivante ; ils sont facultatifs. Un chiffre qui appartient au titre (« Partie II », « Chapitre 3 », « Les années 1968 ») n'est pas pris pour une page.
 
-Les numéros de page sont donc facultatifs : un sommaire recopié sans pagination fonctionne. L'indentation, elle, est lue comme la hiérarchie.
+Chaque intitulé est ensuite **retrouvé dans le texte**, selon le même procédé que pour la table imprimée : titres courants écartés, décalage de pagination estimé, ordre imposé. Les intitulés introuvables passent au modèle s'il est configuré (case proposée dans la fenêtre), puis, à défaut, sont placés en tête de la page que leur assigne leur numéro. L'aperçu final indique combien d'entrées ont été retrouvées, par quel moyen, et nomme celles qui restent introuvables.
 
-Mesuré sur 30 documents dont le sommaire d'éditeur sert de référence, en fournissant les intitulés **sans aucun numéro de page** (le cas le plus défavorable) :
+Mesuré en collant les sommaires d'éditeur **sans aucun numéro de page** (cas le plus défavorable), la proportion d'intitulés placés sur la bonne page, en moyenne par document :
 
-| | |
-|---|---|
-| Intitulé placé sur la bonne page | **84 %** |
-| À une page près | 2 % |
-| Non retrouvé dans le texte | 12 % |
+| | Bien placés (moyenne par document) | Médiane |
+|---|---|---|
+| Articles (175), sans numéros de page | **93 %** | 100 % |
+| Ouvrages (28), sans numéros de page | **74 %** | 80 % |
+| Ouvrages (28), avec numéros de page | **80 %** | 87 % |
 
-Avec les numéros de page imprimés, la précision est nettement meilleure. Sur l'ouvrage qui avait motivé la fonction, les dix entrées sont retrouvées exactement, décalage de pagination estimé à 19 pages.
-
-Les intitulés qui restent introuvables — texte du sommaire différent de celui du corps, numérisation approximative — peuvent être soumis au modèle, qui **choisit parmi des lignes réellement présentes** dans le document, sans jamais en rédiger. La case est proposée dans la fenêtre de collage lorsqu'un fournisseur est configuré.
+Les intitulés manqués sont pour beaucoup des signets d'éditeur sans équivalent dans le texte (« Halftitle », « Copyright », « Cover »).
 
 Cette fonction ne concerne que les PDF : un EPUB tient déjà sa structure de ses propres balises de titre.
 
@@ -85,29 +84,37 @@ La fenêtre est servie depuis un espace de noms `chrome://` enregistré au déma
 
 ## EPUB
 
-Les EPUB sont traités par les mêmes entrées de menu, mais par une voie bien plus directe : un EPUB est du XHTML, où les titres sont explicitement balisés `<h1>`–`<h6>`. Aucune heuristique typographique n'intervient — la hiérarchie est celle qu'a posée l'auteur du fichier, et le modèle n'est jamais sollicité.
+Les EPUB sont traités par les mêmes entrées de menu, mais par une voie bien plus directe : un EPUB est du XHTML, où les titres sont explicitement balisés de `<h1>` à `<h6>`. Aucune heuristique typographique n'intervient : la hiérarchie est celle qu'a posée l'auteur du fichier, et le modèle n'est jamais sollicité.
 
 Le lecteur de Zotero s'appuie sur epub.js, qui lit le document de navigation EPUB 3 (`properties="nav"`) et, à défaut, le `toc.ncx` d'EPUB 2. Le plugin réécrit celui des deux qui fait foi, et en ajoute un si aucun n'existe. Les ancres manquantes sont insérées dans les chapitres pour que chaque renvoi vise le bon titre et non le début du fichier.
 
 Un EPUB dont le sommaire compte **moins de cinq entrées** est considéré comme dépourvu : c'est le cas typique du fichier réduit à « Démarrer », que le plugin est justement là pour réparer.
 
-**Sûreté de l'archive.** Les entrées auxquelles on ne touche pas sont recopiées telles quelles, octets compressés compris — il n'y a donc ni recompression ni perte possible, et aucun compresseur à embarquer. Les entrées modifiées sont écrites sans compression, ce qui est légal, et `mimetype` reste la première entrée. Vérifié sur les 23 EPUB d'une bibliothèque réelle : reconstruction **à l'identique dans les 23 cas** (mêmes entrées, mêmes contenus, archives valides).
+**Sûreté de l'archive.** Les entrées auxquelles on ne touche pas sont recopiées telles quelles, octets compressés compris : il n'y a donc ni recompression ni perte possible, et aucun compresseur à embarquer. Les entrées modifiées sont écrites sans compression, ce qui est légal, et `mimetype` reste la première entrée. Vérifié sur les 23 EPUB d'une bibliothèque réelle : reconstruction **à l'identique dans les 23 cas** (mêmes entrées, mêmes contenus, archives valides).
 
-## Appui d'un modèle (facultatif)
+## Arbitrage par un modèle (facultatif)
 
-Certains PDF ne se laissent pas analyser de façon déterministe : mise en page inhabituelle, titres sans aucune marque typographique, océrisation approximative. Un modèle peut alors prendre le relais.
+Aucune règle fixe ne départage tous les cas : deux ouvrages peuvent présenter le même désaccord entre table imprimée et mise en page, l'un réclamant la table, l'autre la typographie. Un modèle de langue sait, lui, reconnaître qu'une liste ressemble à une vraie table des matières plutôt qu'à une suite d'exercices.
+
+Le modèle reçoit **une liste unique de lignes candidates, numérotées**, chacune annotée de sa page, de sa taille et de son origine : retrouvée dans la table imprimée (avec son niveau), détectée par la mise en page, ou simple ligne plausible. Les lignes du sommaire proposé y sont marquées. Le modèle **corrige** ce sommaire : lignes à retirer (exercices, notes, titres courants, dédicaces…), lignes à ajouter, niveaux à changer.
+
+Ce contrat de correction a remplacé une première version où le modèle reconstruisait le sommaire de zéro. La reconstruction pouvait détruire un bon résultat (un ouvrage chutait de 94 à 54 %) et, avec Mistral, rendait des listes squelettiques. La correction est plus sûre : une réponse paresseuse ne change presque rien, et la tâche, plus simple, est mieux réussie par un modèle moins puissant.
+
+**Le modèle ne rédige jamais les titres.** Il ne renvoie que des numéros de ligne. Les intitulés, les pages et les coordonnées restent ceux extraits du fichier : un modèle ne peut ni inventer une section, ni fausser une destination ; au pire il choisit mal. Et une réponse squelettique est écartée au profit du résultat déterministe.
+
+Réglage **Solliciter le modèle** :
+
+- *jamais* : le plugin fonctionne entièrement sans modèle ;
+- *quand les sources ne se confirment pas* (par défaut) : le modèle n'intervient que si table imprimée et mise en page ne concordent pas sur au moins 95 % des entrées, ou si aucune table n'existe. Mesuré sur 28 ouvrages, ce seuil capte presque tout le gain d'un arbitrage systématique avec un tiers d'appels en moins ;
+- *toujours*.
 
 Trois fournisseurs, réglables dans **Préférences → zotero-TOC** :
 
 | Fournisseur | Clé requise | Données transmises |
 |---|---|---|
 | **Ollama** | aucune | rien ne quitte la machine |
-| **Claude Code en ligne de commande** | aucune (abonnement du CLI) | rien ne quitte la machine |
+| **Claude Code en ligne de commande** | aucune (abonnement du CLI) | les lignes candidates sont envoyées à Anthropic |
 | **API Mistral** (ou compatible OpenAI) | oui | les lignes candidates sont envoyées au service |
-
-Réglage `Solliciter le modèle` : *jamais*, *en cas de doute seulement* (par défaut), ou *toujours*.
-
-**Le modèle ne rédige jamais les titres.** On lui soumet une liste numérotée de lignes réellement présentes dans le PDF ; il ne renvoie que des numéros de ligne assortis d'un niveau. Les intitulés, les pages et les coordonnées restent ceux extraits du fichier. Un modèle ne peut donc ni inventer une section, ni fausser une destination — au pire il choisit mal.
 
 Le bouton **Tester le modèle** vérifie la configuration sur un jeu d'essai avant tout traitement par lot.
 
@@ -129,14 +136,17 @@ Par prudence supplémentaire, une copie du fichier d'origine est conservée avan
 
 ## Diagnostic
 
-Si le traitement échoue et que le message ne suffit pas, réglez ces deux préférences cachées (`about:config` de Zotero, ou `Préférences → Avancées → Éditeur de configuration`) :
+Si le traitement échoue et que le message ne suffit pas, réglez ces préférences cachées (`Préférences → Avancées → Éditeur de configuration`) :
 
 - `extensions.zotero.ztoc.diagnosticOut` : chemin du rapport JSON à écrire ;
-- `extensions.zotero.ztoc.diagnosticPdf` : chemin d'un PDF à analyser ;
-- `extensions.zotero.ztoc.diagnosticItemKey` : clé d'un item de la bibliothèque, pour dérouler le traitement exactement comme le fait le menu ;
+- `extensions.zotero.ztoc.diagnosticPdf` : un ou plusieurs chemins de PDF, séparés par `|`. La chaîne réelle est déroulée (modèle compris s'il est configuré) et le résultat écrit dans une copie `.ztoc-diagnostic.pdf`, jamais dans la bibliothèque ;
+- `extensions.zotero.ztoc.diagnosticForceAI` et `extensions.zotero.ztoc.diagnosticAIContract` (`edit` ou `select`) : forcer l'arbitrage du modèle, et en choisir la forme, pour ce diagnostic seulement ;
+- `extensions.zotero.ztoc.diagnosticItemKey` : clé d'un item de la bibliothèque, pour dérouler le traitement exactement comme le fait le menu (le fichier est alors modifié) ;
 - `extensions.zotero.ztoc.diagnosticDialog` : ouvre la fenêtre de collage au démarrage et vérifie qu'elle s'instancie réellement.
 
-Au démarrage suivant, le plugin déroule la chaîne complète et consigne l'étape fautive. Laissez `diagnosticOut` vide pour désactiver.
+Au démarrage suivant, le plugin déroule la chaîne. Le rapport est réécrit à chaque étape dans `<diagnosticOut>.partiel` : si le traitement se fige, la dernière ligne désigne l'étape fautive. Laissez `diagnosticOut` vide pour désactiver.
+
+Aucun document ne peut figer le plugin : l'ouverture d'un PDF, chaque page et la fermeture ont une durée maximale, au-delà de laquelle la page est sautée, ou le document abandonné avec un message clair si pdf.js ne répond plus.
 
 ## Développement
 
@@ -150,13 +160,28 @@ Les modules de `lib/` n'ont aucune dépendance et sont conçus pour tourner auss
 
 | Fichier | Rôle |
 |---|---|
-| `lib/pdf-lib.js` | lecture de la structure d'un PDF, écriture du sommaire par mise à jour incrémentale |
+| `lib/pipeline.js` | choix de la source : table des matières imprimée, approfondissement par les styles, arbitrage avec la mise en page |
+| `lib/toc-paste.js` | lecture d'un sommaire (collé ou imprimé) et localisation de ses intitulés dans le texte |
+| `lib/detect.js` | détection typographique des titres et de leur hiérarchie |
 | `lib/extract.js` | extraction des lignes et de leur typographie, découpage en colonnes (via le pdf.js de Zotero) |
-| `lib/detect.js` | détection des titres et de leur hiérarchie |
-| `lib/ai.js` | appui facultatif d'un modèle |
-| `lib/toc-paste.js` | analyse d'un sommaire collé et localisation des intitulés dans le document |
+| `lib/ai.js` | arbitrage facultatif par un modèle |
+| `lib/pdf-lib.js` | lecture de la structure d'un PDF, écriture du sommaire par mise à jour incrémentale |
 | `lib/zip.js` | lecture et réécriture d'archives ZIP, sans recompression |
 | `lib/epub.js` | relevé des titres d'un EPUB et génération de son document de navigation |
+
+### Banc d'essai
+
+`tools/bench/` mesure la qualité sur votre propre bibliothèque Zotero, en prenant pour référence les PDF qui possèdent un vrai sommaire d'éditeur :
+
+```sh
+python3 tools/bench/build-reference.py      # constitue les références
+node tools/bench/bench.mjs books 999 pipeline  # ouvrages, chaîne complète
+node tools/bench/bench.mjs articles 999 pipeline
+node tools/bench/paste-bench.mjs books 999     # fonction de collage
+MODE=edit node tools/bench/ai-bench.mjs books  # apport du modèle (Claude en ligne de commande)
+```
+
+Le pdf.js de Zotero doit être extrait au préalable dans `tools/bench/data/omni/` (voir `tools/bench/common.mjs`). Les sommaires écrits par le plugin lui-même sont exclus des références : il serait sinon comparé à son propre travail.
 
 ## Licence
 

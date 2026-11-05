@@ -45,3 +45,10 @@ pref("extensions.zotero.ztoc.diagnosticPasteItem", "");
 pref("extensions.zotero.ztoc.diagnosticPasteFile", "");
 // Contrôle de la fenêtre de collage au démarrage (diagnostic).
 pref("extensions.zotero.ztoc.diagnosticDialog", false);
+
+// Forme de l'arbitrage par le modèle : « edit » (corriger le sommaire
+// proposé, par défaut) ou « select » (le reconstruire parmi les candidats).
+pref("extensions.zotero.ztoc.aiContract", "edit");
+// Diagnostic : forcer l'arbitrage, et choisir sa forme pour l'occasion.
+pref("extensions.zotero.ztoc.diagnosticForceAI", false);
+pref("extensions.zotero.ztoc.diagnosticAIContract", "");

@@ -1,5 +1,5 @@
 /* eslint-disable no-undef */
-// zotero-TOC — script du panneau de préférences : n'affiche que les réglages du
+// zotero-TOC : script du panneau de préférences : n'affiche que les réglages du
 // fournisseur choisi, et permet de vérifier que le modèle répond réellement
 // avant de lancer un traitement par lot.
 
@@ -40,23 +40,27 @@
 		if (btn) btn.disabled = true;
 		try {
 			let { AI } = TOC.loadModules();
-			// Jeu d'essai minuscule : deux vrais titres parmi du corps de texte.
+			// Jeu d'essai minuscule, au format qu'emploie réellement le plugin :
+			// deux vrais titres, un exercice numéroté et du corps de texte.
 			let candidates = [
-				{ i: 1, pageIndex: 0, y: 700, size: 16, text: "1. Introduction" },
-				{ i: 2, pageIndex: 0, y: 650, size: 10,
+				{ i: 1, pageIndex: 0, y: 700, size: 16, tags: ["T", "D"], tocLevel: 1, text: "1. Introduction" },
+				{ i: 2, pageIndex: 0, y: 650, size: 10, tags: ["C"], tocLevel: null,
 					text: "Le présent article examine les conditions dans lesquelles ces phénomènes apparaissent." },
-				{ i: 3, pageIndex: 1, y: 700, size: 14, text: "1.1. Contexte de l'étude" },
-				{ i: 4, pageIndex: 2, y: 700, size: 16, text: "2. Méthode" }
+				{ i: 3, pageIndex: 1, y: 700, size: 13, tags: ["D"], tocLevel: null, text: "1.1. Contexte de l'étude" },
+				{ i: 4, pageIndex: 1, y: 300, size: 10, tags: ["D"], tocLevel: null,
+					text: "1.2. Montrer que la relation proposée est transitive. Justifier." },
+				{ i: 5, pageIndex: 2, y: 700, size: 16, tags: ["T", "D"], tocLevel: 1, text: "2. Méthode" }
 			];
-			let res = await AI.refine(TOC.aiConfig(), candidates,
-				{ title: "Essai", pages: 3, bodySize: 10 });
+			let res = await AI.selectOutline(TOC.aiConfig(), candidates,
+				{ title: "Essai", pages: 3, bodySize: 10, hasToc: true });
 			if (!res.length) {
 				out.setAttribute("value", "✗ Le modèle a répondu, mais n'a retenu aucun titre.");
 			}
 			else {
-				out.setAttribute("value", "✓ Réponse correcte — "
+				out.setAttribute("value", "✓ Réponse correcte : "
 					+ res.length + " titres retenus : "
-					+ res.map(h => h.title).join(" / ").slice(0, 70));
+					+ res.map(h => h.title).join(" / ").slice(0, 70)
+					+ (res.some(h => /transitive/.test(h.title)) ? " (l'exercice n'a pas été écarté)" : ""));
 			}
 		}
 		catch (e) {
